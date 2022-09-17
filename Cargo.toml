@@ -1,8 +1,9 @@
 [package]
-name = "tileset_d2sw"
-version = "0.1.0"
+name = "tileset_D2sw"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
+const_format = "0.2"
 byteorder = "1.4"
 png = "0.17"
