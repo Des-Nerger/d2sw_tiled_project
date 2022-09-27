@@ -1,5 +1,5 @@
 (Not ready for the public yet, but I keep it here anyway to hold myself accountable / motivated and as a cloud backup.)
-# tileset_D2sw
+# d2sw_tiled_project
 ```sh
 $ find "/full/path/to/Diablo II Shareware v 1.04"/*.mpq/extracted/data/global/{palette,tiles}/[Aa]*1/ \
        -iname "*.d*t*" -print0 | \
