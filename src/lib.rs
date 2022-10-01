@@ -13,17 +13,13 @@ pub mod dt1 {
 	pub struct Metadata {
 		pub fileHeader: FileHeader,
 
-		#[serde(rename = "tileHeader")]
-		pub tileHeaders: Vec<TileHeader>,
-
-		#[serde(rename = "blockHeader")]
-		pub blockHeaders: Vec<BlockHeader>,
+		#[serde(rename = "tile")]
+		pub tiles: Vec<Tile>,
 	}
 
 	#[derive(Serialize, Deserialize)]
 	pub struct FileHeader {
 		pub version: [i32; 2],
-		pub numTiles: i32,
 		pub tileHeadersPointer: i32,
 	}
 
@@ -31,7 +27,7 @@ pub mod dt1 {
 	const NUM_SUBTILES: usize = SUBTILE_SIZE.pow(2);
 
 	#[derive(Serialize, Deserialize)]
-	pub struct TileHeader {
+	pub struct Tile {
 		pub direction: i32,
 		pub roofHeight: i16,
 		pub soundIndex: u8,
@@ -42,15 +38,18 @@ pub mod dt1 {
 		pub mainIndex: i32,
 		pub subIndex: i32,
 		pub rarityOrFrameIndex: i32,
-		pub unknown: [i16; 2],
+		pub unknown: [u8; 4],
 		pub subtileFlags: [u8; NUM_SUBTILES],
 		pub blockHeadersPointer: i32,
 		pub blockDataLength: i32,
-		pub numBlocks: i32,
+		pub almostAlwaysZeros: [u8; 4],
+
+		#[serde(rename = "block")]
+		pub blocks: Vec<Block>,
 	}
 
 	#[derive(Serialize, Deserialize)]
-	pub struct BlockHeader {
+	pub struct Block {
 		pub x: i16,
 		pub y: i16,
 		pub gridX: u8,
@@ -65,48 +64,50 @@ pub mod dt1 {
 			let mut cursor = io::Cursor::new(dt1);
 			let version = [cursor.read_i32::<LE>().unwrap(), cursor.read_i32::<LE>().unwrap()];
 			cursor.consumeZeros(260);
-			let numTiles = cursor.read_i32::<LE>().unwrap();
+			let mut tiles = Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _);
 			let tileHeadersPointer = cursor.read_i32::<LE>().unwrap();
-			let mut tileHeaders = Vec::with_capacity(numTiles as _);
-			let mut blockHeaders = {
-				let mut totalNumBlocks = 0;
-				for _ in 0..numTiles {
-					tileHeaders.push(TileHeader {
-						direction: cursor.read_i32::<LE>().unwrap(),
-						roofHeight: cursor.read_i16::<LE>().unwrap(),
-						soundIndex: cursor.read_u8().unwrap(),
-						isAnimated: match cursor.read_u8().unwrap() {
-							0 => false,
-							1 => true,
-							byte => panic!("{}", byte),
-						},
-						height: cursor.read_i32::<LE>().unwrap(),
-						width: cursor.read_i32::<LE>().unwrap(),
-						orientation: {
-							cursor.consumeZeros(4);
-							cursor.read_i32::<LE>().unwrap()
-						},
-						mainIndex: cursor.read_i32::<LE>().unwrap(),
-						subIndex: cursor.read_i32::<LE>().unwrap(),
-						rarityOrFrameIndex: cursor.read_i32::<LE>().unwrap(),
-						unknown: [cursor.read_i16::<LE>().unwrap(), cursor.read_i16::<LE>().unwrap()],
-						subtileFlags: cursor.read_u8_array(),
-						blockHeadersPointer: {
-							cursor.consumeZeros(7);
-							cursor.read_i32::<LE>().unwrap()
-						},
-						blockDataLength: cursor.read_i32::<LE>().unwrap(),
-						numBlocks: cursor.read_i32::<LE>().unwrap().alsoAddTo(&mut totalNumBlocks),
-					});
-					cursor.consumeZeros(12); // they're not all zeros all of the time; FIXME later
-				}
-				assert_eq!(tileHeaders.len(), tileHeaders.capacity());
-				Vec::with_capacity(totalNumBlocks as _)
-			};
-			for tileHeader in &tileHeaders {
+			assert_eq!(cursor.position(), tileHeadersPointer as _);
+			for _ in 0..tiles.capacity() {
+				tiles.push(Tile {
+					direction: cursor.read_i32::<LE>().unwrap(),
+					roofHeight: cursor.read_i16::<LE>().unwrap(),
+					soundIndex: cursor.read_u8().unwrap(),
+					isAnimated: match cursor.read_u8().unwrap() {
+						0 => false,
+						1 => true,
+						byte => panic!("{}", byte),
+					},
+					height: cursor.read_i32::<LE>().unwrap(),
+					width: cursor.read_i32::<LE>().unwrap(),
+					orientation: {
+						cursor.consumeZeros(4);
+						cursor.read_i32::<LE>().unwrap()
+					},
+					mainIndex: cursor.read_i32::<LE>().unwrap(),
+					subIndex: cursor.read_i32::<LE>().unwrap(),
+					rarityOrFrameIndex: cursor.read_i32::<LE>().unwrap(),
+					unknown: cursor.read_u8_array(),
+					subtileFlags: cursor.read_u8_array(),
+					blockHeadersPointer: {
+						cursor.consumeZeros(7);
+						cursor.read_i32::<LE>().unwrap()
+					},
+					blockDataLength: cursor.read_i32::<LE>().unwrap(),
+					blocks: Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _),
+					almostAlwaysZeros: {
+						cursor.consumeZeros(4);
+						cursor.read_u8_array()
+					},
+				});
+				cursor.consumeZeros(4);
+			}
+			assert_eq!(tiles.len(), tiles.capacity());
+			for tile in &mut tiles {
+				assert_eq!(cursor.position(), tile.blockHeadersPointer as _);
 				let mut totalLength = 0;
-				for _ in 0..tileHeader.numBlocks {
-					blockHeaders.push(BlockHeader {
+				let blocks = &mut tile.blocks;
+				for _ in 0..blocks.capacity() {
+					blocks.push(Block {
 						x: cursor.read_i16::<LE>().unwrap(),
 						y: cursor.read_i16::<LE>().unwrap(),
 						gridX: {
@@ -122,9 +123,9 @@ pub mod dt1 {
 						},
 					});
 				}
+				assert_eq!(blocks.len(), blocks.capacity());
 				cursor.consume(totalLength as _);
 			}
-			assert_eq!(blockHeaders.len(), blockHeaders.capacity());
 			assert_eq!(cursor.position(), dt1.len() as _);
 
 			trait Read {
@@ -166,11 +167,7 @@ pub mod dt1 {
 				}
 			}
 
-			Metadata {
-				fileHeader: FileHeader { version, numTiles, tileHeadersPointer },
-				tileHeaders,
-				blockHeaders,
-			}
+			Metadata { fileHeader: FileHeader { version, tileHeadersPointer }, tiles }
 		}
 	}
 
