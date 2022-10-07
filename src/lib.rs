@@ -239,3 +239,17 @@ pub mod dt1 {
 		}
 	}
 }
+
+use std::{fs::File, os};
+
+#[cfg(unix)]
+pub fn unbuffered_stdout() -> File {
+	use os::unix::io::FromRawFd;
+	unsafe { File::from_raw_fd(1) }
+}
+
+#[cfg(windows)]
+pub fn unbuffered_stdout() -> File {
+	use windows::io::{AsRawHandle, FromRawHandle};
+	unsafe { File::from_raw_handle(io::stdout().as_raw_handle()) }
+}

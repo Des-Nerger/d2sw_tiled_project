@@ -1,7 +1,10 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
 #![allow(non_snake_case)]
 
-use std::io::{self, Read, Write};
+use {
+	d2sw_tiled_project::unbuffered_stdout,
+	std::io::{self, Read, Write},
+};
 
 fn main() {
 	const PAL_LEN: usize = 256 * 3;
@@ -11,5 +14,5 @@ fn main() {
 	for i in (0..pal.len()).step_by(3) {
 		pal.swap(i + 0, i + 2);
 	}
-	io::stdout().write_all(pal).unwrap();
+	unbuffered_stdout().write_all(pal).unwrap();
 }

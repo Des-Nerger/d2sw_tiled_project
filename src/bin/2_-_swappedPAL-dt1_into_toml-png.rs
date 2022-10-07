@@ -2,15 +2,15 @@
 #![allow(non_snake_case)]
 
 use {
-	d2sw_tiled_project::dt1,
+	d2sw_tiled_project::{dt1, unbuffered_stdout},
 	png::ColorType,
-	std::io::{self, BufWriter, Read},
+	std::io::{self, BufWriter, Read, Write},
 };
 
 fn main() {
 	let buffer = &mut Vec::<u8>::new();
 	io::stdin().read_to_end(buffer).unwrap();
-	let (swappedPal, dt1) = {
+	let (swappedPAL, dt1) = {
 		const PAL_LEN: usize = 256 * 3;
 		buffer.as_slice().split_at(PAL_LEN)
 	};
@@ -18,40 +18,36 @@ fn main() {
 	let buffer = ();
 
 	let dt1Metadata = &dt1::Metadata::new(dt1);
-	let dt1TOML = toml::to_string(dt1Metadata).unwrap_or_else(|err| panic!("{err}"));
-	print!("{}\n{dt1TOML}", dt1TOML.len());
-	let imageData = ImageData::new(&dt1Metadata.tiles);
-	eprintln!("{:?}", (imageData.width, imageData.height));
-	let mut png = png::Encoder::new(
-		// FIXME: remove this extra BufWriter layer when they fix http://github.com/rust-lang/rust/issues/60673
-		BufWriter::new(io::stdout()),
-		imageData.width as _,
-		imageData.height as _,
-	);
+	let image = Image::new(&dt1Metadata.tiles);
+	eprintln!("{:?}", (image.width, image.height));
+	let mut stdout = BufWriter::new(unbuffered_stdout());
+	let mut png = png::Encoder::new(&mut stdout, image.width as _, image.height as _);
 	png.set_color(ColorType::Indexed);
-	png.set_palette(swappedPal);
-	png.write_header().unwrap().write_image_data(imageData.bytes.as_slice()).unwrap();
+	png.set_palette(swappedPAL);
+	png.write_header().unwrap().write_image_data(&image.data).unwrap();
+	stdout.write_all(&(toml::to_vec(dt1Metadata).unwrap_or_else(|err| panic!("{err}")))).unwrap();
 
-	struct ImageData {
+	struct Image {
 		width: usize,
 		height: usize,
-		bytes: Vec<u8>,
+		data: Vec<u8>,
 	}
-	impl ImageData {
+	impl Image {
 		fn new(tiles: &[dt1::Tile]) -> Self {
 			let width;
 			let height = {
+				const MAX_BLOCKHEIGHT: usize = 32;
 				let mut y: usize = 0;
 				for tile in tiles {
 					const FLOOR: i32 = 0;
 					const ROOF: i32 = 15;
-					let blockHeight = if let FLOOR | ROOF = tile.orientation { 15 + 1 } else { 32 };
-					y = y.nextMultipleOf(blockHeight);
-					y += tile.blocks.len() * blockHeight;
+					let blockHeight = if let FLOOR | ROOF = tile.orientation { 15 + 1 } else { MAX_BLOCKHEIGHT };
+					y = y.nextMultipleOf(blockHeight) + tile.blocks.len() * blockHeight;
 				}
-				let requiredPixelArea = y * 32;
+				const BLOCKWIDTH: usize = 32;
+				let requiredPixelArea = y * BLOCKWIDTH;
 				width = ((requiredPixelArea as f32).sqrt() as usize).next_power_of_two();
-				requiredPixelArea.divCeil(width).nextMultipleOf(32)
+				requiredPixelArea.divCeil(width).nextMultipleOf(MAX_BLOCKHEIGHT)
 			};
 
 			trait IntRoundings {
@@ -75,17 +71,17 @@ fn main() {
 				}
 			}
 
-			ImageData { width, height, bytes: [98].repeat(height * width) }
+			Image { width, height, data: [98].repeat(height * width) }
 		}
 	}
-	impl dt1::DrawDestination for ImageData {
+	impl dt1::DrawDestination for Image {
 		#[inline(always)]
 		fn width(&self) -> usize {
 			self.width
 		}
 		#[inline(always)]
 		fn putpixel(&mut self, atIndex: usize, withValue: u8) {
-			self.bytes[atIndex] = withValue;
+			self.data[atIndex] = withValue;
 		}
 	}
 }
