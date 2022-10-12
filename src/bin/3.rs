@@ -1,11 +1,13 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
 #![allow(non_snake_case)]
 
-use std::{env, fs::File, io::Read};
+use {
+	d2sw_tiled_project::PAL_LEN,
+	std::{env, fs::File, io::Read},
+};
 
 fn main() {
 	let mut args = env::args().skip(1);
-	const PAL_LEN: usize = 256 * 3;
 	let swappedPAL = &mut Vec::<u8>::with_capacity(PAL_LEN);
 	{
 		let path: &str = &(args.next().unwrap());

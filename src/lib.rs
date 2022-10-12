@@ -1,6 +1,8 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
 #![allow(non_snake_case)]
 
+pub const PAL_LEN: usize = 256 * 3;
+
 pub mod dt1 {
 	use {
 		byteorder::{ReadBytesExt, LE},
@@ -172,8 +174,13 @@ pub mod dt1 {
 	}
 
 	pub trait DrawDestination {
-		fn width(&self) -> usize;
+		fn widthLog2(&self) -> usize;
 		fn putpixel(&mut self, atIndex: usize, withValue: u8);
+
+		#[inline(always)]
+		fn width(&self) -> usize {
+			1 << self.widthLog2()
+		}
 
 		/*
 			3D-isometric Block :
@@ -190,11 +197,11 @@ pub mod dt1 {
 			assert_eq!(length, 256);
 
 			// draw
-			let (mut i, mut y, width) = (0, 0, self.width());
+			let (mut i, mut y, widthLog2) = (0, 0, self.widthLog2());
 			while length > 0 {
 				static XJUMP: [u8; 15] = [14, 12, 10, 8, 6, 4, 2, 0, 2, 4, 6, 8, 10, 12, 14];
 				static NBPIX: [u8; 15] = [4, 8, 12, 16, 20, 24, 28, 32, 28, 24, 20, 16, 12, 8, 4];
-				let (mut j, mut n) = ((y0 + y) * width + x0 + XJUMP[y] as usize, NBPIX[y] as usize);
+				let (mut j, mut n) = (((y0 + y) << widthLog2) + x0 + XJUMP[y] as usize, NBPIX[y] as usize);
 				length -= n;
 				while n != 0 {
 					self.putpixel(j, data[i]);
@@ -213,10 +220,10 @@ pub mod dt1 {
 			when 1st and 2nd bytes are 0 and 0, next line.
 		*/
 		fn drawBlockNormal(&mut self, x0: usize, y0: usize, data: &[u8]) {
-			let (mut length, width) = (data.len(), self.width());
+			let (mut length, widthLog2) = (data.len(), self.widthLog2());
 
 			// draw
-			let (mut i, mut y, j0) = (0, 0, |y| (y0 + y) * width + x0);
+			let (mut i, mut y, j0) = (0, 0, |y| ((y0 + y) << widthLog2) + x0);
 			let mut j = j0(y);
 			while length > 0 {
 				let (xjump, mut xsolid) = (data[i + 0] as usize, data[i + 1] as usize);
