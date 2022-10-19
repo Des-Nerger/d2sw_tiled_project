@@ -2,7 +2,7 @@
 #![allow(non_snake_case)]
 
 use {
-	d2sw_tiled_project::{unbuffered_stdout, PAL_LEN},
+	d2sw_tiled_project::{stdoutRaw, PAL_LEN},
 	std::io::{self, Read, Write},
 };
 
@@ -13,5 +13,5 @@ fn main() {
 	for i in (0..pal.len()).step_by(3) {
 		pal.swap(i + 0, i + 2);
 	}
-	unbuffered_stdout().write_all(pal).unwrap();
+	stdoutRaw().write_all(pal).unwrap();
 }

@@ -2,41 +2,29 @@
 #![allow(non_snake_case)]
 
 use {
-	const_format::concatcp,
-	core::{cmp::min, str::FromStr},
-	d2sw_tiled_project::{unbuffered_stdout, FILESIZE_MAX},
+	const_format::formatcp,
+	core::str::FromStr,
+	d2sw_tiled_project::stdoutRaw,
 	std::{
 		env,
 		fs::File,
-		io::{self, BufRead, Write},
+		io::{self, BufRead, Read},
 	},
 };
 
 fn main() {
-	const FILESIZE_LINE: &'static str = concatcp!(FILESIZE_MAX, '\n');
-	let (stdin, filesizeLine) = (io::stdin(), &mut String::with_capacity(FILESIZE_LINE.len()));
-	let (mut stdin, mut envArgs) = (stdin.lock(), env::args().skip(1));
-	'outer: loop {
-		let (mut file, mut filesize) = if let Some(filepath) = envArgs.next() {
-			filesizeLine.clear();
-			stdin.read_line(filesizeLine).unwrap();
-			(
-				File::create(filepath).unwrap(),
-				usize::from_str(filesizeLine.trim_end_matches(&['\n', '\r'])).unwrap(),
-			)
-		} else {
-			(unbuffered_stdout(), FILESIZE_MAX)
-		};
-		while filesize > 0 {
-			let buffer = stdin.fill_buf().unwrap();
-			if buffer.len() == 0 {
-				break 'outer;
-			}
-			let numBytesToWrite = min(filesize, buffer.len());
-			file.write_all(&buffer[..numBytesToWrite]).unwrap();
-			stdin.consume(numBytesToWrite);
-			filesize -= numBytesToWrite;
-		}
+	const FILESIZE_LINE: &'static str = formatcp!("{}\r\n", u64::MAX);
+	let stdin = io::stdin();
+	let (stdin, filesizeLine) = (&mut stdin.lock(), &mut String::with_capacity(FILESIZE_LINE.len()));
+	for filepath in env::args().skip(1) {
+		filesizeLine.clear();
+		stdin.read_line(filesizeLine).unwrap();
+		io::copy(
+			&mut stdin.take(u64::from_str(filesizeLine.trim_end_matches(['\n', '\r'])).unwrap()),
+			&mut File::create(filepath).unwrap(),
+		)
+		.unwrap();
 	}
 	assert_eq!(filesizeLine.capacity(), FILESIZE_LINE.len());
+	io::copy(stdin, &mut stdoutRaw()).unwrap();
 }

@@ -4,7 +4,7 @@
 use {
 	d2sw_tiled_project::{
 		dt1::{self, DrawDestination},
-		unbuffered_stdout, PAL_LEN,
+		stdoutRaw, PAL_LEN,
 	},
 	png::ColorType,
 	std::io::{self, BufWriter, Read, Write},
@@ -20,7 +20,7 @@ fn main() {
 	let dt1Metadata = &dt1::Metadata::new(dt1);
 	let image = Image::new(&dt1Metadata.tiles, dt1);
 	eprintln!("{:?}", (image.width(), image.height));
-	let stdout = &mut BufWriter::new(unbuffered_stdout());
+	let stdout = &mut BufWriter::new(stdoutRaw());
 	let toml = &toml::to_string(dt1Metadata).unwrap_or_else(|err| panic!("{err}"));
 	write!(stdout, "{}\n{toml}", toml.len()).unwrap();
 	let mut png = png::Encoder::new(stdout, image.width() as _, image.height as _);
