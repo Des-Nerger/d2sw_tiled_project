@@ -4,7 +4,7 @@
 use {
 	const_format::concatcp,
 	core::{cmp::min, str::FromStr},
-	d2sw_tiled_project::unbuffered_stdout,
+	d2sw_tiled_project::{unbuffered_stdout, FILESIZE_MAX},
 	std::{
 		env,
 		fs::File,
@@ -13,7 +13,6 @@ use {
 };
 
 fn main() {
-	const FILESIZE_MAX: usize = usize::MAX;
 	const FILESIZE_LINE: &'static str = concatcp!(FILESIZE_MAX, '\n');
 	let (stdin, filesizeLine) = (io::stdin(), &mut String::with_capacity(FILESIZE_LINE.len()));
 	let (mut stdin, mut envArgs) = (stdin.lock(), env::args().skip(1));
@@ -33,10 +32,10 @@ fn main() {
 			if buffer.len() == 0 {
 				break 'outer;
 			}
-			let len = min(filesize, buffer.len());
-			file.write_all(&buffer[..len]).unwrap();
-			stdin.consume(len);
-			filesize -= len;
+			let numBytesToWrite = min(filesize, buffer.len());
+			file.write_all(&buffer[..numBytesToWrite]).unwrap();
+			stdin.consume(numBytesToWrite);
+			filesize -= numBytesToWrite;
 		}
 	}
 	assert_eq!(filesizeLine.capacity(), FILESIZE_LINE.len());

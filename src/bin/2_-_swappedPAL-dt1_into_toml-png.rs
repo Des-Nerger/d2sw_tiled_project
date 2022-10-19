@@ -35,11 +35,11 @@ fn main() {
 	}
 	impl Image {
 		fn new(tiles: &[dt1::Tile], dt1: &[u8]) -> Self {
-			trait NonZeroInteger {
+			trait NonZeroIntegerExt {
 				fn nextShlOf(self, rhs: Self) -> Self;
 				fn shrCeil(self, rhs: Self) -> Self;
 			}
-			impl NonZeroInteger for usize {
+			impl NonZeroIntegerExt for usize {
 				#[inline(always)]
 				fn nextShlOf(self, rhs: Self) -> Self {
 					let rhsExp2 = 1 << rhs;

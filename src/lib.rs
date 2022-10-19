@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
 #![allow(non_snake_case)]
 
+pub const FILESIZE_MAX: usize = usize::MAX;
 pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
@@ -130,11 +131,11 @@ pub mod dt1 {
 			}
 			assert_eq!(cursor.position(), dt1.len() as _);
 
-			trait Read {
+			trait ReadExt {
 				fn consumeZeros(&mut self, zerosCount: usize);
 				fn read_u8_array<const N: usize>(&mut self) -> [u8; N];
 			}
-			impl Read for io::Cursor<&[u8]> {
+			impl ReadExt for io::Cursor<&[u8]> {
 				fn consumeZeros(&mut self, zerosCount: usize) {
 					let position = self.position() as usize;
 					self.set_position((position + zerosCount) as _);
@@ -159,10 +160,10 @@ pub mod dt1 {
 			}
 
 			#[allow(non_camel_case_types)]
-			trait Copy_AddAssign {
+			trait Copy_AddAssign_Ext {
 				fn alsoAddTo(self, to: &mut Self) -> Self;
 			}
-			impl<T: Copy + ops::AddAssign> Copy_AddAssign for T {
+			impl<T: Copy + ops::AddAssign> Copy_AddAssign_Ext for T {
 				fn alsoAddTo(self, to: &mut Self) -> Self {
 					*to += self;
 					self
