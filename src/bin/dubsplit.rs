@@ -18,7 +18,9 @@ fn main() {
 	let (stdin, filesizeLine) = (&mut stdin.lock(), &mut String::with_capacity(FILESIZE_LINE.len()));
 	for filepath in env::args().skip(1) {
 		filesizeLine.clear();
-		stdin.read_line(filesizeLine).unwrap();
+		if stdin.read_line(filesizeLine).unwrap() == 0 {
+			break;
+		}
 		io::copy(
 			&mut stdin.take(u64::from_str(filesizeLine.trim_end_matches(['\n', '\r'])).unwrap()),
 			&mut File::create(filepath).unwrap(),

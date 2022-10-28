@@ -6,7 +6,7 @@ pub const PAL_LEN: usize = 256 * 3;
 pub mod dt1 {
 	use {
 		byteorder::{ReadBytesExt, LE},
-		core::ops,
+		core::{fmt, ops},
 		serde::{Deserialize, Serialize},
 		std::io::{self, BufRead},
 	};
@@ -25,6 +25,17 @@ pub mod dt1 {
 		pub tileHeadersPointer: i32,
 	}
 
+	const EXPECTED_VERSION: [i32; 2] = [7, 6];
+
+	pub struct VersionMismatchError {
+		version: [i32; 2],
+	}
+	impl fmt::Debug for VersionMismatchError {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+			write!(f, "dt1.fileHeader.version == {:?} != {EXPECTED_VERSION:?}", self.version)
+		}
+	}
+
 	const SUBTILE_SIZE: usize = 5;
 	const NUM_SUBTILES: usize = SUBTILE_SIZE.pow(2);
 
@@ -32,8 +43,7 @@ pub mod dt1 {
 	pub struct Tile {
 		pub direction: i32,
 		pub roofHeight: i16,
-		pub soundIndex: u8,
-		pub isAnimated: bool,
+		pub materialFlags: [u8; 2],
 		pub height: i32,
 		pub width: i32,
 		pub orientation: i32,
@@ -44,7 +54,7 @@ pub mod dt1 {
 		pub subtileFlags: [u8; NUM_SUBTILES],
 		pub blockHeadersPointer: i32,
 		pub blockDataLength: i32,
-		pub almostAlwaysZeros: [u8; 4],
+		pub usuallyZeros: [u8; 4],
 
 		#[serde(rename = "block")]
 		pub blocks: Vec<Block>,
@@ -56,15 +66,18 @@ pub mod dt1 {
 		pub y: i16,
 		pub gridX: u8,
 		pub gridY: u8,
-		pub format: i16,
+		pub format: [u8; 2],
 		pub length: i32,
 		pub fileOffset: i32,
 	}
 
 	impl Metadata {
-		pub fn new(dt1: &[u8]) -> Metadata {
+		pub fn new(dt1: &[u8]) -> Result<Metadata, VersionMismatchError> {
 			let mut cursor = io::Cursor::new(dt1);
 			let version = [cursor.read_i32::<LE>().unwrap(), cursor.read_i32::<LE>().unwrap()];
+			if version != EXPECTED_VERSION {
+				return Err(VersionMismatchError { version });
+			}
 			cursor.consumeZeros(260);
 			let mut tiles = Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _);
 			let tileHeadersPointer = cursor.read_i32::<LE>().unwrap();
@@ -73,12 +86,7 @@ pub mod dt1 {
 				tiles.push(Tile {
 					direction: cursor.read_i32::<LE>().unwrap(),
 					roofHeight: cursor.read_i16::<LE>().unwrap(),
-					soundIndex: cursor.read_u8().unwrap(),
-					isAnimated: match cursor.read_u8().unwrap() {
-						0 => false,
-						1 => true,
-						byte => panic!("{}", byte),
-					},
+					materialFlags: cursor.read_u8_array(),
 					height: cursor.read_i32::<LE>().unwrap(),
 					width: cursor.read_i32::<LE>().unwrap(),
 					orientation: {
@@ -96,7 +104,7 @@ pub mod dt1 {
 					},
 					blockDataLength: cursor.read_i32::<LE>().unwrap(),
 					blocks: Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _),
-					almostAlwaysZeros: {
+					usuallyZeros: {
 						cursor.consumeZeros(4);
 						cursor.read_u8_array()
 					},
@@ -117,7 +125,7 @@ pub mod dt1 {
 							cursor.read_u8().unwrap()
 						},
 						gridY: cursor.read_u8().unwrap(),
-						format: cursor.read_i16::<LE>().unwrap(),
+						format: cursor.read_u8_array(),
 						length: cursor.read_i32::<LE>().unwrap().alsoAddTo(&mut totalLength),
 						fileOffset: {
 							cursor.consumeZeros(2);
@@ -169,7 +177,7 @@ pub mod dt1 {
 				}
 			}
 
-			Metadata { fileHeader: FileHeader { version, tileHeadersPointer }, tiles }
+			Ok(Metadata { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
 		}
 	}
 

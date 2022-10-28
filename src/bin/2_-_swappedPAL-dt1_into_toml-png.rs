@@ -10,14 +10,14 @@ use {
 	std::io::{self, BufWriter, Read, Write},
 };
 
-fn main() {
+fn main() -> Result<(), dt1::VersionMismatchError> {
 	let buffer = &mut Vec::<u8>::new();
 	io::stdin().read_to_end(buffer).unwrap();
 	let (swappedPAL, dt1) = buffer.as_slice().split_at(PAL_LEN);
 	#[allow(unused_variables)]
 	let buffer = ();
 
-	let dt1Metadata = &dt1::Metadata::new(dt1);
+	let dt1Metadata = &dt1::Metadata::new(dt1)?;
 	let image = Image::new(&dt1Metadata.tiles, dt1);
 	eprintln!("{:?}", (image.width(), image.height));
 	let stdout = &mut BufWriter::new(stdoutRaw());
@@ -26,6 +26,7 @@ fn main() {
 	let mut png = png::Encoder::new(stdout, image.width() as _, image.height as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(swappedPAL);
+	png.set_trns(&[0][..]);
 	png.write_header().unwrap().write_image_data(&image.data).unwrap();
 
 	struct Image {
@@ -80,9 +81,9 @@ fn main() {
 				}
 				let requiredPixelArea = y << log2!(BLOCKWIDTH);
 				widthLog2 = log2(((requiredPixelArea as f32).sqrt() as usize).next_power_of_two());
-				requiredPixelArea.shrCeil(widthLog2).nextShlOf(log2!(FLOOR_ROOF_BLOCKHEIGHT))
+				requiredPixelArea.shrCeil(widthLog2).nextShlOf(log2!(MAX_BLOCKHEIGHT))
 			};
-			let mut image = Self { widthLog2, height, data: [98].repeat(height << widthLog2) };
+			let mut image = Self { widthLog2, height, data: vec![0; height << widthLog2] };
 			let (mut x, mut y) = (0, 0);
 			for tile in tiles {
 				let blockHeight = {
@@ -106,7 +107,7 @@ fn main() {
 							nextY
 						}
 					};
-					(if block.format == 1 { Self::drawBlockIsometric } else { Self::drawBlockNormal })(
+					(if block.format == [1, 0] { Self::drawBlockIsometric } else { Self::drawBlockNormal })(
 						&mut image,
 						x,
 						y,
@@ -125,7 +126,10 @@ fn main() {
 		}
 		#[inline(always)]
 		fn putpixel(&mut self, atIndex: usize, withValue: u8) {
+			assert_ne!(withValue, 0);
 			self.data[atIndex] = withValue;
 		}
 	}
+
+	Ok(())
 }
