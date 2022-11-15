@@ -60,6 +60,12 @@ pub mod dt1 {
 		pub blocks: Vec<Block>,
 	}
 
+	impl Tile {
+		pub fn height(&self) -> usize {
+			80
+		}
+	}
+
 	#[derive(Serialize, Deserialize)]
 	pub struct Block {
 		pub x: i16,
@@ -253,6 +259,145 @@ pub mod dt1 {
 			}
 		}
 	}
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TileColumns {
+	pub fullColumnHeight: usize,
+	pub numFullColumns: usize,
+	pub lastColumnHeight: usize,
+}
+
+impl TileColumns {
+	#[inline(always)]
+	pub fn pushTile(&mut self, tileHeight: usize) -> usize {
+		self.lastColumnHeight += tileHeight;
+		let diff = self.lastColumnHeight - self.fullColumnHeight;
+		if (diff as isize) < 0 {
+			return 0;
+		}
+		self.numFullColumns += 1;
+		(|(lastColumnHeight, fillerHeight)| {
+			self.lastColumnHeight = lastColumnHeight;
+			fillerHeight
+		})(if diff == 0 { (0, 0) } else { (tileHeight, tileHeight - diff) })
+	}
+}
+
+/*
+pub struct TileColumns {
+	pub columnHeight: usize,
+	totalHeight: usize,
+}
+
+impl TileColumns {
+	#[inline(always)]
+	pub fn pushTile(&mut self, tileHeight: usize) -> usize {
+		self.totalHeight += tileHeight;
+		let diff = tileHeight - self.totalHeight.modCeil(self.columnHeight);
+		if diff as isize > 0 {
+			self.totalHeight += diff;
+			diff
+		} else {
+			0
+		}
+	}
+}
+
+pub struct TilesSquare<const TILEWIDTH: usize> {
+	pub sizeLog2: usize,
+	pub usedHeight: usize,
+}
+
+impl<const TILEWIDTH: usize> TilesSquare<TILEWIDTH> {
+	#[inline(always)]
+	pub fn putTile(&mut self, tileHeight: usize) -> usize {
+		let square = self;
+		let (size, mut usedHeight) = (1 << square.sizeLog2, square.usedHeight + tileHeight);
+		let excess = {
+			let diff = tileHeight - usedHeight.bitandCeil(size - 1);
+			if diff as isize > 0 {
+				usedHeight += diff;
+				diff
+			} else {
+				0
+			}
+		};
+		if (usedHeight.shrCeil(square.sizeLog2) * TILEWIDTH) > size {
+			tileHeight
+		} else {
+			square.usedHeight = usedHeight;
+			excess
+		}
+	}
+}
+*/
+
+pub trait NonZeroIntegerExt {
+	fn nextShlOf(self, rhs: Self) -> Self;
+	fn shrCeil(self, rhs: Self) -> Self;
+	fn bitandCeil(self, rhs: Self) -> Self;
+}
+impl NonZeroIntegerExt for usize {
+	#[inline(always)]
+	fn nextShlOf(self, rhs: Self) -> Self {
+		let rhsExp2 = 1 << rhs;
+		let r = self & (rhsExp2 - 1);
+		self + ((!((r != 0) as Self) + 1) & (rhsExp2 - r))
+	}
+	#[inline(always)]
+	fn shrCeil(self, rhs: Self) -> Self {
+		((self - 1) >> rhs) + 1
+	}
+	#[inline(always)]
+	fn bitandCeil(self, rhs: Self) -> Self {
+		((self - 1) & rhs) + 1
+	}
+}
+
+#[inline(always)]
+pub const fn log2(of: usize) -> usize {
+	(usize::BITS - 1 - of.leading_zeros()) as _
+}
+#[inline(always)]
+pub const fn log2Ceil(of: usize) -> usize {
+	log2(of - 1) + 1
+}
+#[macro_export]
+macro_rules! log2 {
+	( $of:expr ) => {{
+		const LOG2: usize = log2($of);
+		LOG2
+	}};
+}
+#[macro_export]
+macro_rules! log2Ceil {
+	( $of:expr ) => {{
+		const LOG2CEIL: usize = log2Ceil($of);
+		LOG2CEIL
+	}};
+}
+
+#[macro_export]
+macro_rules! array_fromFn {
+	(|$i: ident| $expr: expr) => {{
+		#[inline(always)]
+		const fn array_fromFn() -> [T; N] {
+			let mut array: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+			{
+				let mut i = 0;
+				while i < array.len() {
+					array[i] = {
+						let $i = i;
+						MaybeUninit::new($expr as T)
+					};
+					i += 1;
+				}
+			}
+			unsafe { transmute::<_, [T; N]>(array) }
+		}
+		array_fromFn()
+	}};
 }
 
 use std::{fs::File, os};

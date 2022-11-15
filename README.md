@@ -7,7 +7,7 @@ $ export PATH_D2_EXTRACTED="/full/path/to/Diablo II Shareware v 1.04"/*.mpq/extr
 $ cargo run --release --offline --bin 1_-_pal_into_swappedPAL \
     <"$PATH_D2_EXTRACTED"/data/global/palette/[Aa][Cc][Tt]1/pal.dat >/dev/shm/act1_swappedPAL.dat
 
-$ cargo build --release --offline --bin 2_-_swappedPAL-dt1_into_toml-png --bin dubsplit \
+$ cargo build --release --offline --bin 2_-_swappedPAL-dt1_into_toml-blocksPNG --bin dubsplit \
     && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]1 -iname "*.dt1" -print0 \
          | while read -d $'\0' f; do
              [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
@@ -16,8 +16,8 @@ $ cargo build --release --offline --bin 2_-_swappedPAL-dt1_into_toml-png --bin d
              b="${BASH_REMATCH[2]}"
              echo -n "${BASH_REMATCH[1]}/$b "
              cat /dev/shm/act1_swappedPAL.dat "$f" \
-               | target/release/2_-_swappedPAL-dt1_into_toml-png \
-               | target/release/dubsplit "$d/$b".toml >"$d/$b".png
+               | target/release/2_-_swappedPAL-dt1_into_toml-blocksPNG \
+               | target/release/dubsplit "$d/$b".toml >"$d/$b".blocks.png
            done
 
 $ find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]1 -iname "*.dt1" -print \

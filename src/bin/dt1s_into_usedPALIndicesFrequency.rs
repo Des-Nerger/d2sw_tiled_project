@@ -3,8 +3,12 @@
 
 use {
 	const_format::formatcp,
-	core::str::FromStr,
+	core::{
+		mem::{transmute, MaybeUninit},
+		str::FromStr,
+	},
 	d2sw_tiled_project::{
+		array_fromFn,
 		dt1::{self, DrawDestination},
 		stdoutRaw,
 	},
@@ -65,8 +69,11 @@ fn main() {
 			}
 		}
 	}
-	let mut arrayIndices: [u8; UsedPALIndicesFrequency::LEN] =
-		(0..=(UsedPALIndicesFrequency::LEN - 1) as u8).collect::<Vec<_>>().try_into().unwrap();
+	let mut arrayIndices = {
+		type T = u8;
+		const N: usize = UsedPALIndicesFrequency::LEN;
+		array_fromFn!(|i| i)
+	};
 	arrayIndices.sort_by(|a, b| counts[*a as usize].cmp(&counts[*b as usize]));
 	for i in arrayIndices {
 		writeln!(stdout, "{i}\t{}", counts[i as usize]).unwrap();
