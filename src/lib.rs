@@ -1,12 +1,19 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case)]
+#![allow(non_snake_case, confusable_idents, mixed_script_confusables)]
 
 pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
 	use {
+		super::{log2, TileColumns},
 		byteorder::{ReadBytesExt, LE},
-		core::{fmt, ops},
+		core::{
+			cmp::{
+				max,
+				Ordering::{Greater, Less},
+			},
+			fmt, mem, ops,
+		},
 		serde::{Deserialize, Serialize},
 		std::io::{self, BufRead},
 	};
@@ -58,12 +65,6 @@ pub mod dt1 {
 
 		#[serde(rename = "block")]
 		pub blocks: Vec<Block>,
-	}
-
-	impl Tile {
-		pub fn height(&self) -> usize {
-			80
-		}
 	}
 
 	#[derive(Serialize, Deserialize)]
@@ -259,122 +260,210 @@ pub mod dt1 {
 			}
 		}
 	}
+
+	pub const BLOCKWIDTH: usize = 32;
+	pub const FLOOR_ROOF_BLOCKHEIGHT: usize = 15 + 1;
+	pub const MAX_BLOCKHEIGHT: usize = 32;
+	pub const FLOOR: i32 = 0;
+	pub const ROOF: i32 = 15;
+
+	impl super::Image {
+		pub fn fromDT1(tiles: &[Tile], dt1: &[u8]) -> Self {
+			let height;
+			let widthLog2 = {
+				let chosenTileColumns = &{
+					let choices = &mut Vec::<TileColumns>::new();
+					choices.push(TileColumns {
+						fullColumnHeight: MAX_BLOCKHEIGHT,
+						numOverflownColumns: 0,
+						lastColumnHeight: 0,
+					});
+					for tile in tiles {
+						let blockHeight = if matches!(tile.orientation, FLOOR | ROOF) {
+							FLOOR_ROOF_BLOCKHEIGHT
+						} else {
+							MAX_BLOCKHEIGHT
+						};
+						for _ in &tile.blocks {
+							choices.push(choices.last().unwrap().clone());
+							let mut i = 0;
+							while i < choices.len() {
+								let numOverflown = choices[i].pushTile(blockHeight);
+								if i == choices.len() - 2 {
+									let lastIndex = choices.len() - 1;
+									if numOverflown == 0 {
+										choices.truncate(lastIndex);
+									} else {
+										assert_eq!(choices[lastIndex].numOverflownColumns, 0);
+										choices[lastIndex].fullColumnHeight += FLOOR_ROOF_BLOCKHEIGHT;
+										choices.push(choices[lastIndex].clone());
+									}
+								}
+								i += 1;
+							}
+						}
+					}
+					choices.sort_by(|a, b| {
+						let dimensions = [a, b].map(|tileColumns| tileColumns.dimensions(BLOCKWIDTH));
+						let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
+						const A: usize = 0;
+						const B: usize = 1;
+						match ((pow2SquareSizes[A] - pow2SquareSizes[B]) as isize).signum() {
+							-1 => return Less,
+							1 => return Greater,
+							_ => {}
+						}
+						const WIDTH: usize = 0;
+						dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH])
+					});
+					mem::take(&mut choices[0])
+				};
+				let width;
+				[width, height] = chosenTileColumns.dimensions(BLOCKWIDTH);
+				let pow2Width = width.next_power_of_two();
+				eprintln!(
+					"[{width}, {height}] --> [{pow2Width}, {height}]; lastColumnHeight = {}",
+					chosenTileColumns.lastColumnHeight,
+				);
+				log2(pow2Width)
+			};
+			let mut image = Self { widthLog2, data: vec![0; height << widthLog2] };
+			let (mut x, mut y) = (0, 0);
+			for tile in tiles {
+				let blockHeight =
+					if matches!(tile.orientation, FLOOR | ROOF) { FLOOR_ROOF_BLOCKHEIGHT } else { MAX_BLOCKHEIGHT };
+				for block in &tile.blocks {
+					let nextY = {
+						let nextY = y + blockHeight;
+						if nextY > height {
+							x += BLOCKWIDTH;
+							y = 0;
+							blockHeight
+						} else {
+							nextY
+						}
+					};
+					(if block.format == [1, 0] { Self::drawBlockIsometric } else { Self::drawBlockNormal })(
+						&mut image,
+						x,
+						y,
+						&dt1[(tile.blockHeadersPointer + block.fileOffset) as _..][..block.length as _],
+					);
+					y = nextY;
+				}
+			}
+			image
+		}
+	}
 }
 
-#[derive(Debug, Copy, Clone)]
+use std::{fs::File, io::Read, os};
+
+pub struct Image {
+	pub widthLog2: usize,
+	pub data: Vec<u8>,
+}
+impl Image {
+	#[inline(always)]
+	pub fn height(&self) -> usize {
+		self.data.len() >> self.widthLog2
+	}
+	pub fn fromPNG(png: &mut png::Reader<impl Read>) -> Self {
+		let widthLog2 = {
+			let width = png.info().width as usize;
+			assert!(width.is_power_of_two());
+			log2(width)
+		};
+		let mut data = Vec::with_capacity(png.output_buffer_size());
+		data.setLen(data.capacity());
+		let len = png.next_frame(&mut data).unwrap().buffer_size();
+		data.setLen(len);
+		Self { widthLog2, data }
+	}
+	pub fn blitPixelsRectangle(&mut self, destPoint: Vec2, rectangle: Vec2, srcImg: &Self, srcPoint: Vec2) {
+		const X: usize = 0;
+		const Y: usize = 1;
+		const WIDTH: usize = 0;
+		const HEIGHT: usize = 1;
+		let mut i = srcPoint[X] + (srcPoint[Y] << srcImg.widthLog2);
+		let ΔiNextLine = (1 << srcImg.widthLog2) - rectangle[WIDTH];
+		let mut j = destPoint[X] + (destPoint[Y] << self.widthLog2);
+		let ΔjNextLine = (1 << self.widthLog2) - rectangle[WIDTH];
+		let (mut Δx, mut Δy) = (0, 0);
+		while Δy < rectangle[HEIGHT] {
+			while Δx < rectangle[WIDTH] {
+				match srcImg.data[i] {
+					FULLY_TRANSPARENT => {}
+					pixelValue => {
+						assert_eq!(self.data[j], FULLY_TRANSPARENT);
+						self.data[j] = pixelValue;
+					}
+				}
+				Δx += 1;
+				i += 1;
+				j += 1;
+			}
+			Δx = 0;
+			Δy += 1;
+			i += ΔiNextLine;
+			j += ΔjNextLine;
+		}
+	}
+}
+pub type Vec2 = [usize; 2];
+pub const FULLY_TRANSPARENT: u8 = 0;
+impl dt1::DrawDestination for Image {
+	#[inline(always)]
+	fn widthLog2(&self) -> usize {
+		self.widthLog2
+	}
+	#[inline(always)]
+	fn putpixel(&mut self, atIndex: usize, value: u8) {
+		assert_ne!(value, FULLY_TRANSPARENT);
+		self.data[atIndex] = value;
+	}
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct TileColumns {
 	pub fullColumnHeight: usize,
-	pub numFullColumns: usize,
+	pub numOverflownColumns: usize,
 	pub lastColumnHeight: usize,
 }
-
 impl TileColumns {
 	#[inline(always)]
 	pub fn pushTile(&mut self, tileHeight: usize) -> usize {
-		self.lastColumnHeight += tileHeight;
-		let diff = self.lastColumnHeight - self.fullColumnHeight;
-		if (diff as isize) < 0 {
+		assert!(tileHeight <= self.fullColumnHeight);
+		let (lastColumnHeight, fullColumnHeight) = (&mut self.lastColumnHeight, &mut self.fullColumnHeight);
+		*lastColumnHeight += tileHeight;
+		let dividend = *lastColumnHeight - 1;
+		let (quotient, remainder) = (dividend / *fullColumnHeight, dividend % *fullColumnHeight);
+		if quotient == 0 {
 			return 0;
 		}
-		self.numFullColumns += 1;
-		(|(lastColumnHeight, fillerHeight)| {
-			self.lastColumnHeight = lastColumnHeight;
-			fillerHeight
-		})(if diff == 0 { (0, 0) } else { (tileHeight, tileHeight - diff) })
+		self.numOverflownColumns += quotient;
+		*lastColumnHeight = tileHeight;
+		tileHeight - remainder
+	}
+	#[inline(always)]
+	pub const fn dimensions(&self, tileWidth: usize) -> [usize; 2] {
+		[(self.numOverflownColumns + 1) * tileWidth, self.fullColumnHeight]
 	}
 }
 
-/*
-pub struct TileColumns {
-	pub columnHeight: usize,
-	totalHeight: usize,
-}
-
-impl TileColumns {
-	#[inline(always)]
-	pub fn pushTile(&mut self, tileHeight: usize) -> usize {
-		self.totalHeight += tileHeight;
-		let diff = tileHeight - self.totalHeight.modCeil(self.columnHeight);
-		if diff as isize > 0 {
-			self.totalHeight += diff;
-			diff
-		} else {
-			0
-		}
-	}
-}
-
-pub struct TilesSquare<const TILEWIDTH: usize> {
-	pub sizeLog2: usize,
-	pub usedHeight: usize,
-}
-
-impl<const TILEWIDTH: usize> TilesSquare<TILEWIDTH> {
-	#[inline(always)]
-	pub fn putTile(&mut self, tileHeight: usize) -> usize {
-		let square = self;
-		let (size, mut usedHeight) = (1 << square.sizeLog2, square.usedHeight + tileHeight);
-		let excess = {
-			let diff = tileHeight - usedHeight.bitandCeil(size - 1);
-			if diff as isize > 0 {
-				usedHeight += diff;
-				diff
-			} else {
-				0
-			}
-		};
-		if (usedHeight.shrCeil(square.sizeLog2) * TILEWIDTH) > size {
-			tileHeight
-		} else {
-			square.usedHeight = usedHeight;
-			excess
-		}
-	}
-}
-*/
-
-pub trait NonZeroIntegerExt {
-	fn nextShlOf(self, rhs: Self) -> Self;
-	fn shrCeil(self, rhs: Self) -> Self;
-	fn bitandCeil(self, rhs: Self) -> Self;
-}
-impl NonZeroIntegerExt for usize {
-	#[inline(always)]
-	fn nextShlOf(self, rhs: Self) -> Self {
-		let rhsExp2 = 1 << rhs;
-		let r = self & (rhsExp2 - 1);
-		self + ((!((r != 0) as Self) + 1) & (rhsExp2 - r))
-	}
-	#[inline(always)]
-	fn shrCeil(self, rhs: Self) -> Self {
-		((self - 1) >> rhs) + 1
-	}
-	#[inline(always)]
-	fn bitandCeil(self, rhs: Self) -> Self {
-		((self - 1) & rhs) + 1
-	}
-}
+// pub trait NonZeroIntegerExt {}
+// impl NonZeroIntegerExt for usize {}
 
 #[inline(always)]
 pub const fn log2(of: usize) -> usize {
 	(usize::BITS - 1 - of.leading_zeros()) as _
 }
-#[inline(always)]
-pub const fn log2Ceil(of: usize) -> usize {
-	log2(of - 1) + 1
-}
+
 #[macro_export]
-macro_rules! log2 {
-	( $of:expr ) => {{
-		const LOG2: usize = log2($of);
-		LOG2
-	}};
-}
-#[macro_export]
-macro_rules! log2Ceil {
-	( $of:expr ) => {{
-		const LOG2CEIL: usize = log2Ceil($of);
-		LOG2CEIL
+macro_rules! cоnst {
+	( $expr: expr ) => {{
+		const CONST: usize = $expr;
+		CONST
 	}};
 }
 
@@ -400,7 +489,17 @@ macro_rules! array_fromFn {
 	}};
 }
 
-use std::{fs::File, os};
+pub trait VecExt {
+	fn setLen(&mut self, newLen: usize);
+}
+impl<T> VecExt for Vec<T> {
+	fn setLen(&mut self, newLen: usize) {
+		if !cfg!(debug_assertions) {
+			assert!(newLen <= self.capacity());
+		}
+		unsafe { self.set_len(newLen) };
+	}
+}
 
 #[cfg(unix)]
 pub fn stdoutRaw() -> File {

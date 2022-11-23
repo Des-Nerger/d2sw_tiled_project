@@ -1,5 +1,5 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case)]
+#![allow(non_snake_case, confusable_idents, mixed_script_confusables)]
 
 use {
 	const_format::formatcp,
@@ -10,7 +10,7 @@ use {
 	d2sw_tiled_project::{
 		array_fromFn,
 		dt1::{self, DrawDestination},
-		stdoutRaw,
+		stdoutRaw, VecExt,
 	},
 	std::io::{self, BufRead, Read, Write},
 };
@@ -35,19 +35,6 @@ fn main() {
 			dt1.reserve(filesize);
 			dt1.setLen(filesize);
 			stdin.read_exact(dt1).unwrap();
-
-			trait VecExt {
-				fn setLen(&mut self, newLen: usize);
-			}
-			impl<T> VecExt for Vec<T> {
-				fn setLen(&mut self, newLen: usize) {
-					if !cfg!(debug_assertions) {
-						assert!(newLen <= self.capacity());
-					}
-					unsafe { self.set_len(newLen) };
-				}
-			}
-
 			match dt1::Metadata::new(dt1) {
 				Err(_) => continue 'outer,
 				Ok(ok) => ok,

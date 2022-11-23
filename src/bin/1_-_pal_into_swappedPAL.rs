@@ -1,5 +1,5 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case)]
+#![allow(non_snake_case, confusable_idents, mixed_script_confusables)]
 
 use {
 	d2sw_tiled_project::{stdoutRaw, PAL_LEN},
