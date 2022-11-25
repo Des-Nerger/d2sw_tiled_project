@@ -43,11 +43,7 @@ fn main() {
 		.tiles
 		{
 			for block in &tile.blocks {
-				(if block.format == [1, 0] {
-					UsedPALIndicesFrequency::drawBlockIsometric
-				} else {
-					UsedPALIndicesFrequency::drawBlockNormal
-				})(
+				block.drawFn()(
 					&mut UsedPALIndicesFrequency(counts),
 					IRRELEVANT,
 					IRRELEVANT,

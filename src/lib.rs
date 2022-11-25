@@ -78,6 +78,30 @@ pub mod dt1 {
 		pub fileOffset: i32,
 	}
 
+	impl Block {
+		pub fn drawFn<T: DrawDestination>(&self) -> DrawFn<T> {
+			if self.format == [1, 0] {
+				DrawDestination::drawBlockIsometric
+			} else {
+				DrawDestination::drawBlockNormal
+			}
+		}
+	}
+
+	impl Tile {
+		pub fn height_y0_blockHeight(&self) -> [usize; 3] {
+			let mut height = (-self.height) as usize;
+			match self.orientation {
+				FLOOR | ROOF => [FLOOR_ROOF_TILEHEIGHT, 0, FLOOR_ROOF_BLOCKHEIGHT],
+				LOWER_WALLS.. => [height, 96 + height, MAX_BLOCKHEIGHT],
+				_ => {
+					height -= MAX_BLOCKHEIGHT;
+					[height, height, MAX_BLOCKHEIGHT]
+				}
+			}
+		}
+	}
+
 	impl Metadata {
 		pub fn new(dt1: &[u8]) -> Result<Metadata, VersionMismatchError> {
 			let mut cursor = io::Cursor::new(dt1);
@@ -188,6 +212,9 @@ pub mod dt1 {
 		}
 	}
 
+	#[allow(non_camel_case_types)]
+	type DrawFn<implDrawDestination> = fn(&mut implDrawDestination, x0: usize, y0: usize, data: &[u8]);
+
 	pub trait DrawDestination {
 		fn widthLog2(&self) -> usize;
 		fn putpixel(&mut self, atIndex: usize, withValue: u8);
@@ -261,11 +288,15 @@ pub mod dt1 {
 		}
 	}
 
+	pub const TILEWIDTH: usize = 160;
+	pub const FLOOR_ROOF_TILEHEIGHT: usize = 79 + 1;
+	pub const MAX_TILEHEIGHT: usize = 320; // FIXME
 	pub const BLOCKWIDTH: usize = 32;
 	pub const FLOOR_ROOF_BLOCKHEIGHT: usize = 15 + 1;
 	pub const MAX_BLOCKHEIGHT: usize = 32;
 	pub const FLOOR: i32 = 0;
 	pub const ROOF: i32 = 15;
+	pub const LOWER_WALLS: i32 = 16;
 
 	impl super::Image {
 		pub fn fromDT1(tiles: &[Tile], dt1: &[u8]) -> Self {
@@ -279,19 +310,14 @@ pub mod dt1 {
 						lastColumnHeight: 0,
 					});
 					for tile in tiles {
-						let blockHeight = if matches!(tile.orientation, FLOOR | ROOF) {
-							FLOOR_ROOF_BLOCKHEIGHT
-						} else {
-							MAX_BLOCKHEIGHT
-						};
 						for _ in &tile.blocks {
 							choices.push(choices.last().unwrap().clone());
 							let mut i = 0;
 							while i < choices.len() {
-								let numOverflown = choices[i].pushTile(blockHeight);
+								let result = choices[i].pushTile(tile.height_y0_blockHeight()[2]);
 								if i == choices.len() - 2 {
 									let lastIndex = choices.len() - 1;
-									if numOverflown == 0 {
+									if result == 0 {
 										choices.truncate(lastIndex);
 									} else {
 										assert_eq!(choices[lastIndex].numOverflownColumns, 0);
@@ -308,7 +334,7 @@ pub mod dt1 {
 						let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
 						const A: usize = 0;
 						const B: usize = 1;
-						match ((pow2SquareSizes[A] - pow2SquareSizes[B]) as isize).signum() {
+						match (pow2SquareSizes[A].wrapping_sub(pow2SquareSizes[B]) as isize).signum() {
 							-1 => return Less,
 							1 => return Greater,
 							_ => {}
@@ -330,10 +356,9 @@ pub mod dt1 {
 			let mut image = Self { widthLog2, data: vec![0; height << widthLog2] };
 			let (mut x, mut y) = (0, 0);
 			for tile in tiles {
-				let blockHeight =
-					if matches!(tile.orientation, FLOOR | ROOF) { FLOOR_ROOF_BLOCKHEIGHT } else { MAX_BLOCKHEIGHT };
 				for block in &tile.blocks {
 					let nextY = {
+						let blockHeight = tile.height_y0_blockHeight()[2];
 						let nextY = y + blockHeight;
 						if nextY > height {
 							x += BLOCKWIDTH;
@@ -343,7 +368,7 @@ pub mod dt1 {
 							nextY
 						}
 					};
-					(if block.format == [1, 0] { Self::drawBlockIsometric } else { Self::drawBlockNormal })(
+					block.drawFn()(
 						&mut image,
 						x,
 						y,
@@ -411,6 +436,14 @@ impl Image {
 	}
 }
 pub type Vec2 = [usize; 2];
+pub trait Vec2Ext {
+	fn add(self, rhs: Self) -> Self;
+}
+impl Vec2Ext for Vec2 {
+	fn add(self, rhs: Self) -> Self {
+		[self[0].wrapping_add(rhs[0]), self[1].wrapping_add(rhs[1])]
+	}
+}
 pub const FULLY_TRANSPARENT: u8 = 0;
 impl dt1::DrawDestination for Image {
 	#[inline(always)]
