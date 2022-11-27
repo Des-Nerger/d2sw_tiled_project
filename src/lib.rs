@@ -9,7 +9,7 @@ pub mod dt1 {
 		byteorder::{ReadBytesExt, LE},
 		core::{
 			cmp::{
-				max,
+				max, min,
 				Ordering::{Greater, Less},
 			},
 			fmt, mem, ops,
@@ -79,6 +79,7 @@ pub mod dt1 {
 	}
 
 	impl Block {
+		#[inline(always)]
 		pub fn drawFn<T: DrawDestination>(&self) -> DrawFn<T> {
 			if self.format == [1, 0] {
 				DrawDestination::drawBlockIsometric
@@ -89,15 +90,14 @@ pub mod dt1 {
 	}
 
 	impl Tile {
-		pub fn height_y0_blockHeight(&self) -> [usize; 3] {
-			let mut height = (-self.height) as usize;
+		#[inline(always)]
+		pub fn blockHeight(&self) -> usize {
+			if self.blocks.len() == 0 {
+				return 0;
+			}
 			match self.orientation {
-				FLOOR | ROOF => [FLOOR_ROOF_TILEHEIGHT, 0, FLOOR_ROOF_BLOCKHEIGHT],
-				LOWER_WALLS.. => [height, 96 + height, MAX_BLOCKHEIGHT],
-				_ => {
-					height -= MAX_BLOCKHEIGHT;
-					[height, height, MAX_BLOCKHEIGHT]
-				}
+				FLOOR | ROOF => FLOOR_ROOF_BLOCKHEIGHT,
+				_ => MAX_BLOCKHEIGHT,
 			}
 		}
 	}
@@ -290,38 +290,46 @@ pub mod dt1 {
 
 	pub const TILEWIDTH: usize = 160;
 	pub const FLOOR_ROOF_TILEHEIGHT: usize = 79 + 1;
-	pub const MAX_TILEHEIGHT: usize = 320; // FIXME
 	pub const BLOCKWIDTH: usize = 32;
 	pub const FLOOR_ROOF_BLOCKHEIGHT: usize = 15 + 1;
 	pub const MAX_BLOCKHEIGHT: usize = 32;
 	pub const FLOOR: i32 = 0;
 	pub const ROOF: i32 = 15;
-	pub const LOWER_WALLS: i32 = 16;
 
 	impl super::Image {
 		pub fn fromDT1(tiles: &[Tile], dt1: &[u8]) -> Self {
+			let [mut minBlockHeight, mut maxBlockHeight] = [usize::MAX, 0];
+			for tile in tiles {
+				let blockHeight = tile.blockHeight();
+				if blockHeight == 0 {
+					continue;
+				}
+				minBlockHeight = min(minBlockHeight, blockHeight);
+				maxBlockHeight = max(maxBlockHeight, blockHeight);
+			}
 			let height;
 			let widthLog2 = {
 				let chosenTileColumns = &{
 					let choices = &mut Vec::<TileColumns>::new();
 					choices.push(TileColumns {
-						fullColumnHeight: MAX_BLOCKHEIGHT,
+						fullColumnHeight: maxBlockHeight,
 						numOverflownColumns: 0,
 						lastColumnHeight: 0,
 					});
 					for tile in tiles {
+						let blockHeight = tile.blockHeight();
 						for _ in &tile.blocks {
 							choices.push(choices.last().unwrap().clone());
 							let mut i = 0;
 							while i < choices.len() {
-								let result = choices[i].pushTile(tile.height_y0_blockHeight()[2]);
+								let result = choices[i].pushTile(blockHeight);
 								if i == choices.len() - 2 {
 									let lastIndex = choices.len() - 1;
 									if result == 0 {
 										choices.truncate(lastIndex);
 									} else {
 										assert_eq!(choices[lastIndex].numOverflownColumns, 0);
-										choices[lastIndex].fullColumnHeight += FLOOR_ROOF_BLOCKHEIGHT;
+										choices[lastIndex].fullColumnHeight += minBlockHeight;
 										choices.push(choices[lastIndex].clone());
 									}
 								}
@@ -348,8 +356,12 @@ pub mod dt1 {
 				[width, height] = chosenTileColumns.dimensions(BLOCKWIDTH);
 				let pow2Width = width.next_power_of_two();
 				eprintln!(
-					"[{width}, {height}] --> [{pow2Width}, {height}]; lastColumnHeight = {}",
-					chosenTileColumns.lastColumnHeight,
+					"{}; {}",
+					format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
+					format_args!(
+						"lastColumnHeight = {}, minBlockHeight = {minBlockHeight}",
+						chosenTileColumns.lastColumnHeight
+					),
 				);
 				log2(pow2Width)
 			};
@@ -358,7 +370,7 @@ pub mod dt1 {
 			for tile in tiles {
 				for block in &tile.blocks {
 					let nextY = {
-						let blockHeight = tile.height_y0_blockHeight()[2];
+						let blockHeight = tile.blockHeight();
 						let nextY = y + blockHeight;
 						if nextY > height {
 							x += BLOCKWIDTH;

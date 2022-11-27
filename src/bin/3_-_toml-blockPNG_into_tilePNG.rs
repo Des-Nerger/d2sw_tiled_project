@@ -4,28 +4,39 @@
 use {
 	core::{
 		cmp::{
-			max,
+			max, min,
 			Ordering::{Greater, Less},
 		},
 		mem,
 		str::{self, FromStr},
 	},
 	d2sw_tiled_project::{
-		dt1::{self, DrawDestination, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, MAX_TILEHEIGHT, TILEWIDTH},
+		dt1::{self, DrawDestination, BLOCKWIDTH, TILEWIDTH},
 		log2, stdoutRaw, Image, TileColumns, Vec2Ext, FULLY_TRANSPARENT,
 	},
 	memchr::memchr,
 	png::ColorType,
-	std::io::{self, BufRead, BufWriter, Read},
+	std::{
+		io::{self, BufRead, BufWriter, Read},
+		process::ExitCode,
+	},
 };
 
-fn main() {
+fn main() -> ExitCode {
 	let stdin = io::stdin();
 	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
-	let dt1Metadata: dt1::Metadata = {
+	let mut dt1Metadata: dt1::Metadata = {
 		let (filesizeLine_len, filesize) = {
 			let buffer = stdin.fill_buf().unwrap();
-			let filesizeLine = str::from_utf8(&buffer[..=memchr(b'\n', buffer).unwrap()]).unwrap();
+			let filesizeLine = str::from_utf8(
+				&buffer[..={
+					match memchr(b'\n', buffer) {
+						Some(index) => index,
+						None => return ExitCode::FAILURE,
+					}
+				}],
+			)
+			.unwrap();
 			(filesizeLine.len(), u64::from_str(filesizeLine.trim_end_matches(['\n', '\r'])).unwrap())
 		};
 		stdin.consume(filesizeLine_len);
@@ -36,6 +47,29 @@ fn main() {
 		reader.read_to_string(&mut string)?;
 		Ok(string)
 	}
+	let [mut maxTileHeight, mut minBlockHeight] = [0, usize::MAX];
+	dt1Metadata.tiles.retain_mut(|tile| {
+		let blockHeight = tile.blockHeight();
+		if blockHeight == 0 {
+			return false;
+		}
+		let [mut minY, mut maxY] = [tile.blocks[0].y; 2];
+		for block in &tile.blocks[1..] {
+			let y = block.y;
+			minY = min(minY, y);
+			maxY = max(maxY, y);
+		}
+		{
+			type __ = i32;
+			tile.height = (maxY as __ + blockHeight as __) - minY as __;
+		}
+		for block in &mut tile.blocks {
+			block.y -= minY
+		}
+		maxTileHeight = max(maxTileHeight, tile.height as usize);
+		minBlockHeight = min(minBlockHeight, blockHeight);
+		true
+	});
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let (srcImg, swappedPAL) = (&Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
 	let destImg = &mut {
@@ -44,7 +78,7 @@ fn main() {
 			let chosenTileColumns = &{
 				let choices = &mut Vec::<TileColumns>::new();
 				choices.push(TileColumns {
-					fullColumnHeight: MAX_TILEHEIGHT,
+					fullColumnHeight: maxTileHeight,
 					numOverflownColumns: 0,
 					lastColumnHeight: 0,
 				});
@@ -52,14 +86,14 @@ fn main() {
 					choices.push(choices.last().unwrap().clone());
 					let mut i = 0;
 					while i < choices.len() {
-						let result = choices[i].pushTile(tile.height_y0_blockHeight()[0]);
+						let result = choices[i].pushTile(tile.height as _);
 						if i == choices.len() - 2 {
 							let lastIndex = choices.len() - 1;
 							if result == 0 {
 								choices.truncate(lastIndex);
 							} else {
 								assert_eq!(choices[lastIndex].numOverflownColumns, 0);
-								choices[lastIndex].fullColumnHeight += FLOOR_ROOF_BLOCKHEIGHT;
+								choices[lastIndex].fullColumnHeight += minBlockHeight;
 								choices.push(choices[lastIndex].clone());
 							}
 						}
@@ -85,8 +119,12 @@ fn main() {
 			[width, height] = chosenTileColumns.dimensions(TILEWIDTH);
 			let pow2Width = width.next_power_of_two();
 			eprintln!(
-				"[{width}, {height}] --> [{pow2Width}, {height}]; lastColumnHeight = {}",
-				chosenTileColumns.lastColumnHeight,
+				"{}; {}",
+				format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
+				format_args!(
+					"lastColumnHeight = {}, maxTileHeight = {maxTileHeight}, minBlockHeight = {minBlockHeight}",
+					chosenTileColumns.lastColumnHeight,
+				),
 			);
 			log2(pow2Width)
 		};
@@ -96,8 +134,8 @@ fn main() {
 		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImg);
 		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImg);
 		for tile in &dt1Metadata.tiles {
-			let [tileHeight, y0, blockHeight] = tile.height_y0_blockHeight();
-			let destPoint = destPoints.next(tileHeight).add([0, y0]);
+			let blockHeight = tile.blockHeight();
+			let destPoint = destPoints.next(tile.height as _);
 			for block in &tile.blocks {
 				destImg.blitPixelsRectangle(
 					destPoint.add([block.x as _, block.y as _]),
@@ -134,4 +172,5 @@ fn main() {
 	png.set_palette(swappedPAL);
 	png.set_trns(&[0][..]);
 	png.write_header().unwrap().write_image_data(&destImg.data).unwrap();
+	ExitCode::SUCCESS
 }
