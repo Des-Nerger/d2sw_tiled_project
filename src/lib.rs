@@ -1,5 +1,5 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case, confusable_idents, mixed_script_confusables)]
+#![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 pub const PAL_LEN: usize = 256 * 3;
 
@@ -8,10 +8,7 @@ pub mod dt1 {
 		super::{log2, TileColumns},
 		byteorder::{ReadBytesExt, LE},
 		core::{
-			cmp::{
-				max, min,
-				Ordering::{Greater, Less},
-			},
+			cmp::{max, min},
 			fmt, mem, ops,
 		},
 		serde::{Deserialize, Serialize},
@@ -92,9 +89,6 @@ pub mod dt1 {
 	impl Tile {
 		#[inline(always)]
 		pub fn blockHeight(&self) -> usize {
-			if self.blocks.len() == 0 {
-				return 0;
-			}
 			match self.orientation {
 				FLOOR | ROOF => FLOOR_ROOF_BLOCKHEIGHT,
 				_ => MAX_BLOCKHEIGHT,
@@ -342,13 +336,10 @@ pub mod dt1 {
 						let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
 						const A: usize = 0;
 						const B: usize = 1;
-						match (pow2SquareSizes[A].wrapping_sub(pow2SquareSizes[B]) as isize).signum() {
-							-1 => return Less,
-							1 => return Greater,
-							_ => {}
-						}
 						const WIDTH: usize = 0;
-						dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH])
+						pow2SquareSizes[A]
+							.cmp(&pow2SquareSizes[B])
+							.then_with(|| dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH]))
 					});
 					mem::take(&mut choices[0])
 				};
@@ -394,7 +385,10 @@ pub mod dt1 {
 	}
 }
 
-use std::{fs::File, io::Read, os};
+use {
+	dt1::BLOCKWIDTH,
+	std::{fs::File, io::Read, os},
+};
 
 pub struct Image {
 	pub widthLog2: usize,
@@ -417,19 +411,46 @@ impl Image {
 		data.setLen(len);
 		Self { widthLog2, data }
 	}
-	pub fn blitPixelsRectangle(&mut self, destPoint: Vec2, rectangle: Vec2, srcImg: &Self, srcPoint: Vec2) {
+	pub fn ΔyBoundsᐸBLOCKWIDTHᐳ(&mut self, [x0, y0]: Vec2, height: usize) -> [i16; 2] {
+		let [mut startΔy, mut endΔy] = [0, height];
+		let [mut i, ΔiNextLine] = [x0 + (y0 << self.widthLog2), 1 << self.widthLog2];
+		const FULLY_TRANSPARENT_LINE: &[u8; BLOCKWIDTH] = &[FULLY_TRANSPARENT; BLOCKWIDTH];
+		while startΔy < endΔy {
+			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_LINE {
+				break;
+			}
+			startΔy += 1;
+			i += ΔiNextLine;
+		}
+		i = x0 + ((y0 + height - 1) << self.widthLog2);
+		while startΔy < endΔy {
+			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_LINE {
+				break;
+			}
+			endΔy -= 1;
+			i -= ΔiNextLine;
+		}
+		[startΔy as _, endΔy as _]
+	}
+	pub fn blitPixelsRectangle(
+		&mut self,
+		destPoint: Vec2,
+		dimensions: Vec2,
+		srcImage: &Self,
+		srcPoint: Vec2,
+	) {
 		const X: usize = 0;
 		const Y: usize = 1;
 		const WIDTH: usize = 0;
 		const HEIGHT: usize = 1;
-		let mut i = srcPoint[X] + (srcPoint[Y] << srcImg.widthLog2);
-		let ΔiNextLine = (1 << srcImg.widthLog2) - rectangle[WIDTH];
+		let mut i = srcPoint[X] + (srcPoint[Y] << srcImage.widthLog2);
+		let ΔiNextLine = (1 << srcImage.widthLog2) - dimensions[WIDTH];
 		let mut j = destPoint[X] + (destPoint[Y] << self.widthLog2);
-		let ΔjNextLine = (1 << self.widthLog2) - rectangle[WIDTH];
+		let ΔjNextLine = (1 << self.widthLog2) - dimensions[WIDTH];
 		let (mut Δx, mut Δy) = (0, 0);
-		while Δy < rectangle[HEIGHT] {
-			while Δx < rectangle[WIDTH] {
-				match srcImg.data[i] {
+		while Δy < dimensions[HEIGHT] {
+			while Δx < dimensions[WIDTH] {
+				match srcImage.data[i] {
 					FULLY_TRANSPARENT => {}
 					pixelValue => {
 						assert_eq!(self.data[j], FULLY_TRANSPARENT);
@@ -496,8 +517,18 @@ impl TileColumns {
 	}
 }
 
-// pub trait NonZeroIntegerExt {}
-// impl NonZeroIntegerExt for usize {}
+pub trait UsizeExt {
+	fn nextMultipleOf(self, rhs: Self) -> Self;
+}
+impl UsizeExt for usize {
+	#[inline(always)]
+	fn nextMultipleOf(self, rhs: Self) -> Self {
+		match self % rhs {
+			0 => self,
+			r => self + (rhs - r),
+		}
+	}
+}
 
 #[inline(always)]
 pub const fn log2(of: usize) -> usize {

@@ -15,9 +15,10 @@ $ cargo build --release --offline --bin dubsplit \
              d="/tmp/d2_act${i}/${BASH_REMATCH[1]}"
              mkdir -p "$d"
              b="${BASH_REMATCH[2]}"
-             echo -n "${BASH_REMATCH[1]}/$b "
+             p="${BASH_REMATCH[1]}/$b "
+             echo -n "$p" 1>&2
              cat /dev/shm/act${i}_swappedPAL.dat "$f" \
-               | target/release/2_-_swappedPAL-dt1_into_toml-blockPNG \
+               | { target/release/2_-_swappedPAL-dt1_into_toml-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
                | tee >(target/release/dubsplit "$d/$b".toml >"$d/$b".block.png) \
                | target/release/3_-_toml-blockPNG_into_tilePNG >"$d/$b".tile.png
            done

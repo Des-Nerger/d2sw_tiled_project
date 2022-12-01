@@ -1,18 +1,15 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case, confusable_idents, mixed_script_confusables)]
+#![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
 	core::{
-		cmp::{
-			max, min,
-			Ordering::{Greater, Less},
-		},
+		cmp::{max, min},
 		mem,
 		str::{self, FromStr},
 	},
 	d2sw_tiled_project::{
-		dt1::{self, DrawDestination, BLOCKWIDTH, TILEWIDTH},
-		log2, stdoutRaw, Image, TileColumns, Vec2Ext, FULLY_TRANSPARENT,
+		dt1::{self, DrawDestination, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, TILEWIDTH},
+		log2, stdoutRaw, Image, TileColumns, UsizeExt, Vec2Ext, FULLY_TRANSPARENT,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -47,32 +44,31 @@ fn main() -> ExitCode {
 		reader.read_to_string(&mut string)?;
 		Ok(string)
 	}
-	let [mut maxTileHeight, mut minBlockHeight] = [0, usize::MAX];
-	dt1Metadata.tiles.retain_mut(|tile| {
-		let blockHeight = tile.blockHeight();
-		if blockHeight == 0 {
-			return false;
-		}
-		let [mut minY, mut maxY] = [tile.blocks[0].y; 2];
-		for block in &tile.blocks[1..] {
-			let y = block.y;
-			minY = min(minY, y);
-			maxY = max(maxY, y);
-		}
-		{
-			type __ = i32;
-			tile.height = (maxY as __ + blockHeight as __) - minY as __;
-		}
-		for block in &mut tile.blocks {
-			block.y -= minY
-		}
-		maxTileHeight = max(maxTileHeight, tile.height as usize);
-		minBlockHeight = min(minBlockHeight, blockHeight);
-		true
-	});
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
-	let (srcImg, swappedPAL) = (&Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
-	let destImg = &mut {
+	let (srcImage, swappedPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
+	let mut maxTileHeight = 0;
+	{
+		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImage);
+		dt1Metadata.tiles.retain_mut(|tile| {
+			if tile.blocks.len() == 0 {
+				return false;
+			}
+			let (mut startY, mut endY, blockHeight) = (i16::MAX, i16::MIN, tile.blockHeight());
+			for block in &tile.blocks {
+				let (y, [startΔy, endΔy]) =
+					(block.y, srcImage.ΔyBoundsᐸBLOCKWIDTHᐳ(srcPoints.next(blockHeight), blockHeight));
+				startY = min(startY, y + startΔy);
+				endY = max(endY, y + endΔy);
+			}
+			tile.height = ((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT) as _;
+			for block in &mut tile.blocks {
+				block.y -= startY;
+			}
+			maxTileHeight = max(maxTileHeight, tile.height as usize);
+			true
+		});
+	}
+	let destImage = &mut {
 		let height;
 		let widthLog2 = {
 			let chosenTileColumns = &{
@@ -93,7 +89,7 @@ fn main() -> ExitCode {
 								choices.truncate(lastIndex);
 							} else {
 								assert_eq!(choices[lastIndex].numOverflownColumns, 0);
-								choices[lastIndex].fullColumnHeight += minBlockHeight;
+								choices[lastIndex].fullColumnHeight += FLOOR_ROOF_BLOCKHEIGHT;
 								choices.push(choices[lastIndex].clone());
 							}
 						}
@@ -105,13 +101,10 @@ fn main() -> ExitCode {
 					let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
 					const A: usize = 0;
 					const B: usize = 1;
-					match (pow2SquareSizes[A].wrapping_sub(pow2SquareSizes[B]) as isize).signum() {
-						-1 => return Less,
-						1 => return Greater,
-						_ => {}
-					}
 					const WIDTH: usize = 0;
-					dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH])
+					pow2SquareSizes[A]
+						.cmp(&pow2SquareSizes[B])
+						.then_with(|| dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH]))
 				});
 				mem::take(&mut choices[0])
 			};
@@ -122,7 +115,7 @@ fn main() -> ExitCode {
 				"{}; {}",
 				format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
 				format_args!(
-					"lastColumnHeight = {}, maxTileHeight = {maxTileHeight}, minBlockHeight = {minBlockHeight}",
+					"lastColumnHeight = {}, maxTileHeight = {maxTileHeight}",
 					chosenTileColumns.lastColumnHeight,
 				),
 			);
@@ -131,46 +124,46 @@ fn main() -> ExitCode {
 		Image { widthLog2, data: vec![FULLY_TRANSPARENT; height << widthLog2] }
 	};
 	{
-		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImg);
-		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImg);
+		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImage);
+		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImage);
 		for tile in &dt1Metadata.tiles {
-			let blockHeight = tile.blockHeight();
-			let destPoint = destPoints.next(tile.height as _);
+			let (destPoint, blockHeight) = (destPoints.next(tile.height as _), tile.blockHeight());
 			for block in &tile.blocks {
-				destImg.blitPixelsRectangle(
+				destImage.blitPixelsRectangle(
 					destPoint.add([block.x as _, block.y as _]),
 					[BLOCKWIDTH, blockHeight],
-					srcImg,
+					srcImage,
 					srcPoints.next(blockHeight),
 				);
 			}
 		}
-
-		struct TilesIterator<const TILEWIDTH: usize>(TileColumns);
-		impl<const TILEWIDTH: usize> TilesIterator<TILEWIDTH> {
-			#[inline(always)]
-			fn new(image: &Image) -> Self {
-				Self(TileColumns {
-					fullColumnHeight: image.data.len() >> image.widthLog2,
-					numOverflownColumns: 0,
-					lastColumnHeight: 0,
-				})
-			}
-			#[inline(always)]
-			fn next(&mut self, tileHeight: usize) -> [usize; 2] {
-				let tileColumns = self.0.clone();
-				if self.0.pushTile(tileHeight) != 0 {
-					[self.0.numOverflownColumns * TILEWIDTH, 0]
-				} else {
-					[tileColumns.numOverflownColumns * TILEWIDTH, tileColumns.lastColumnHeight]
-				}
-			}
-		}
 	}
-	let mut png = png::Encoder::new(stdout, destImg.width() as _, destImg.height() as _);
+	let mut png = png::Encoder::new(stdout, destImage.width() as _, destImage.height() as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(swappedPAL);
 	png.set_trns(&[0][..]);
-	png.write_header().unwrap().write_image_data(&destImg.data).unwrap();
+	png.write_header().unwrap().write_image_data(&destImage.data).unwrap();
+
+	struct TilesIterator<const TILEWIDTH: usize>(TileColumns);
+	impl<const TILEWIDTH: usize> TilesIterator<TILEWIDTH> {
+		#[inline(always)]
+		fn new(image: &Image) -> Self {
+			Self(TileColumns {
+				fullColumnHeight: image.data.len() >> image.widthLog2,
+				numOverflownColumns: 0,
+				lastColumnHeight: 0,
+			})
+		}
+		#[inline(always)]
+		fn next(&mut self, tileHeight: usize) -> [usize; 2] {
+			let tileColumns = self.0.clone();
+			if self.0.pushTile(tileHeight) != 0 {
+				[self.0.numOverflownColumns * TILEWIDTH, 0]
+			} else {
+				[tileColumns.numOverflownColumns * TILEWIDTH, tileColumns.lastColumnHeight]
+			}
+		}
+	}
+
 	ExitCode::SUCCESS
 }

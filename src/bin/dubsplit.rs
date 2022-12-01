@@ -1,5 +1,5 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case, confusable_idents, mixed_script_confusables)]
+#![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
 	const_format::formatcp,
