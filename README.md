@@ -8,7 +8,7 @@ $ i=1; cargo run --release --offline --bin 1_-_pal_into_swappedPAL \
     <"$PATH_D2_EXTRACTED"/data/global/palette/[Aa][Cc][Tt]${i}/pal.dat >/dev/shm/act${i}_swappedPAL.dat
 
 $ cargo build --release --offline --bin dubsplit \
-              --bin 2_-_swappedPAL-dt1_into_toml-blockPNG --bin 3_-_toml-blockPNG_into_tilePNG \
+              --bin 2_-_swappedPAL-dt1_into_dt1TOML-blockPNG --bin 3_-_dt1TOML-blockPNG_into_tilePNG \
     && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print0 \
          | while read -d $'\0' f; do
              [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
@@ -18,12 +18,23 @@ $ cargo build --release --offline --bin dubsplit \
              p="${BASH_REMATCH[1]}/$b "
              echo -n "$p" 1>&2
              cat /dev/shm/act${i}_swappedPAL.dat "$f" \
-               | { target/release/2_-_swappedPAL-dt1_into_toml-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
-               | tee >(target/release/dubsplit "$d/$b".toml >"$d/$b".block.png) \
-               | target/release/3_-_toml-blockPNG_into_tilePNG >"$d/$b".tile.png
+               | { target/release/2_-_swappedPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
+               | tee >(target/release/dubsplit "$d/$b".dt1.toml >"$d/$b".block.png) \
+               | target/release/3_-_dt1TOML-blockPNG_into_tilePNG >"$d/$b".tile.png
            done
 
-$ find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print \
+$ i=1; find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print \
     | cargo run --release --offline --bin dubcat \
     | cargo run --release --offline --bin dt1s_into_usedPALIndicesFrequency
+
+$ i=1; cargo build --release --offline --bin 4_-_ds1_into_ds1TOML \
+    && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.ds1" -print0 \
+         | while read -d $'\0' f; do
+             [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
+             d="/tmp/d2_act${i}/${BASH_REMATCH[1]}"
+             mkdir -p "$d"
+             b="${BASH_REMATCH[2]}"
+             echo -n "${BASH_REMATCH[1]}/$b " 1>&2
+             target/release/4_-_ds1_into_ds1TOML <"$f" >"$d/$b".ds1.toml
+           done
 ```

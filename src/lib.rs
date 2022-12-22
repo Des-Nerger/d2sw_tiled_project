@@ -1,11 +1,237 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
 #![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
+pub mod ds1 {
+	use {
+		super::{ReadExt, VecExt},
+		array_macro::array,
+		byteorder::{ReadBytesExt, LE},
+		core::{fmt, mem::size_of},
+		memchr::memchr,
+		serde::{Deserialize, Serialize},
+		std::io::{self, BufRead},
+	};
+
+	#[derive(Serialize, Deserialize)]
+	pub struct RootStruct {
+		pub version: i32,
+		pub xMax: i32,
+		pub yMax: i32,
+		pub actIndex: i32,
+		pub tagType: i32,
+		pub files: Vec<String>,
+		pub unknown: Option<[u8; 2 * size_of::<i32>()]>,
+		pub numWalls: i32,
+		pub numFloors: i32,
+		pub layers: Vec<Vec<u32>>,
+
+		#[serde(rename = "object")]
+		pub objects: Option<Vec<Object>>,
+
+		#[serde(rename = "group")]
+		pub groups: Option<Vec<Group>>,
+
+		#[serde(rename = "path")]
+		pub paths: Option<Vec<Path>>,
+	}
+
+	#[derive(Serialize, Deserialize)]
+	pub struct Object {
+		pub r#type: i32,
+		pub id: i32,
+		pub x: i32,
+		pub y: i32,
+		pub flags: i32,
+	}
+
+	#[derive(Serialize, Deserialize)]
+	pub struct Group {
+		pub x: i32,
+		pub y: i32,
+		pub width: i32,
+		pub height: i32,
+		pub unknown: i32,
+	}
+
+	#[derive(Serialize, Deserialize)]
+	pub struct Path {
+		pub x: i32,
+		pub y: i32,
+
+		#[serde(rename = "point")]
+		pub points: Vec<Point>,
+	}
+
+	#[derive(Serialize, Deserialize)]
+	pub struct Point {
+		pub x: i32,
+		pub y: i32,
+		pub action: i32,
+	}
+
+	const MINIMUM_VERSION: i32 = 7;
+	pub struct VersionMismatchError {
+		version: i32,
+	}
+	impl fmt::Debug for VersionMismatchError {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+			write!(f, "ds1.version == {:?} < {MINIMUM_VERSION:?}", self.version)
+		}
+	}
+
+	impl RootStruct {
+		pub fn new(ds1: &[u8]) -> Result<Self, VersionMismatchError> {
+			let cursor = &mut io::Cursor::new(ds1);
+			let version = cursor.read_i32::<LE>().unwrap();
+			if version < MINIMUM_VERSION {
+				return Err(VersionMismatchError { version });
+			}
+			eprint!("v{version} ");
+			let [xMax, yMax] = array![_ => cursor.read_i32::<LE>().unwrap(); 2];
+			let actIndex = if version < 8 { 0 } else { cursor.read_i32::<LE>().unwrap() };
+			let tagType = if version < 10 { 0 } else { cursor.read_i32::<LE>().unwrap() };
+			let mut files = Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _);
+			for _ in 0..files.capacity() {
+				let unreadDS1 = &ds1[cursor.position() as _..];
+				let nulPosition = memchr(b'\0', unreadDS1).unwrap();
+				files.push(String::from_utf8((&unreadDS1[..nulPosition]).to_vec()).unwrap());
+				cursor.consume(nulPosition + 1);
+			}
+			let unknown = if matches!(version, 9..=13) { Some(cursor.read_u8_array()) } else { None };
+			let numWalls = cursor.read_i32::<LE>().unwrap();
+			let numFloors = if version < 16 { 1 } else { cursor.read_i32::<LE>().unwrap() };
+			let mut layers = Vec::new();
+			{
+				const NUM_SHADOWS: i32 = 1;
+				for _ in 0..numWalls * 2 + numFloors + NUM_SHADOWS + matches!(tagType, 1 | 2) as i32 {
+					let mut layer = Vec::with_capacity(((xMax + 1) * (yMax + 1)) as _);
+					layer.setLen(layer.capacity());
+					cursor.read_u32_into::<LE>(&mut layer).unwrap();
+					layers.push(layer);
+				}
+			}
+			let mut objects = Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _);
+			for _ in 0..objects.capacity() {
+				objects.push(Object {
+					r#type: cursor.read_i32::<LE>().unwrap(),
+					id: cursor.read_i32::<LE>().unwrap(),
+					x: cursor.read_i32::<LE>().unwrap(),
+					y: cursor.read_i32::<LE>().unwrap(),
+					flags: cursor.read_i32::<LE>().unwrap(),
+				});
+			}
+			let mut groups = Vec::with_capacity(if version >= 12 && matches!(tagType, 1 | 2) {
+				if version >= 18 {
+					cursor.consumeZeros(size_of::<i32>());
+				}
+				cursor.read_i32::<LE>().unwrap() as _
+			} else {
+				0
+			});
+			for _ in 0..groups.capacity() {
+				groups.push(Group {
+					x: if cursor.remaining() < size_of::<i32>() { break } else { cursor.read_i32::<LE>().unwrap() },
+					y: if cursor.remaining() < size_of::<i32>() { break } else { cursor.read_i32::<LE>().unwrap() },
+					width: if cursor.remaining() < size_of::<i32>() {
+						break;
+					} else {
+						cursor.read_i32::<LE>().unwrap()
+					},
+					height: if cursor.remaining() < size_of::<i32>() {
+						break;
+					} else {
+						cursor.read_i32::<LE>().unwrap()
+					},
+					unknown: if version < 13 {
+						0
+					} else {
+						if cursor.remaining() < size_of::<i32>() {
+							break;
+						} else {
+							cursor.read_i32::<LE>().unwrap()
+						}
+					},
+				});
+			}
+			let mut paths = Vec::with_capacity(if version >= 12 && cursor.remaining() >= size_of::<i32>() {
+				cursor.read_i32::<LE>().unwrap() as _
+			} else {
+				0
+			});
+			for _ in 0..paths.capacity() {
+				let mut points = Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _);
+				let [x, y] = [cursor.read_i32::<LE>().unwrap(), cursor.read_i32::<LE>().unwrap()];
+				for _ in 0..points.capacity() {
+					points.push(Point {
+						x: if cursor.remaining() < size_of::<i32>() {
+							break;
+						} else {
+							cursor.read_i32::<LE>().unwrap()
+						},
+						y: if cursor.remaining() < size_of::<i32>() {
+							break;
+						} else {
+							cursor.read_i32::<LE>().unwrap()
+						},
+						action: if version < 15 {
+							1
+						} else {
+							if cursor.remaining() < size_of::<i32>() {
+								break;
+							} else {
+								cursor.read_i32::<LE>().unwrap()
+							}
+						},
+					});
+				}
+				paths.push(Path { x, y, points });
+			}
+			if cursor.position() != ds1.len() as _ {
+				eprintln!("FAILED with {} remaining bytes", cursor.remaining())
+			} else {
+				eprintln!("OK")
+			};
+
+			trait Intо<R> {
+				fn intо(self) -> R;
+			}
+			{
+				type R<T> = Option<Vec<T>>;
+				impl<T> Intо<R<T>> for Vec<T> {
+					fn intо(self) -> R<T> {
+						if self.len() > 0 {
+							Some(self)
+						} else {
+							None
+						}
+					}
+				}
+			}
+
+			Ok(Self {
+				version,
+				xMax,
+				yMax,
+				actIndex,
+				tagType,
+				files,
+				unknown,
+				numWalls,
+				numFloors,
+				layers,
+				objects: objects.intо(),
+				groups: groups.intо(),
+				paths: paths.intо(),
+			})
+		}
+	}
+}
+
 pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
 	use {
-		super::{log2, TileColumns},
+		super::{log2, ReadExt, TileColumns},
 		byteorder::{ReadBytesExt, LE},
 		core::{
 			cmp::{max, min},
@@ -30,7 +256,6 @@ pub mod dt1 {
 	}
 
 	const EXPECTED_VERSION: [i32; 2] = [7, 6];
-
 	pub struct VersionMismatchError {
 		version: [i32; 2],
 	}
@@ -97,7 +322,7 @@ pub mod dt1 {
 	}
 
 	impl Metadata {
-		pub fn new(dt1: &[u8]) -> Result<Metadata, VersionMismatchError> {
+		pub fn new(dt1: &[u8]) -> Result<Self, VersionMismatchError> {
 			let mut cursor = io::Cursor::new(dt1);
 			let version = [cursor.read_i32::<LE>().unwrap(), cursor.read_i32::<LE>().unwrap()];
 			if version != EXPECTED_VERSION {
@@ -163,34 +388,6 @@ pub mod dt1 {
 			}
 			assert_eq!(cursor.position(), dt1.len() as _);
 
-			trait ReadExt {
-				fn consumeZeros(&mut self, zerosCount: usize);
-				fn read_u8_array<const N: usize>(&mut self) -> [u8; N];
-			}
-			impl ReadExt for io::Cursor<&[u8]> {
-				fn consumeZeros(&mut self, zerosCount: usize) {
-					let position = self.position() as usize;
-					self.set_position((position + zerosCount) as _);
-					let underlyingSlice = *(self.get_ref());
-					assert!(allZeros(&underlyingSlice[position..self.position() as _]));
-
-					fn allZeros(byteSlice: &[u8]) -> bool {
-						for &byte in byteSlice {
-							if byte != 0 {
-								return false;
-							}
-						}
-						true
-					}
-				}
-				fn read_u8_array<const N: usize>(&mut self) -> [u8; N] {
-					let position = self.position() as usize;
-					self.set_position((position + N) as _);
-					let underlyingSlice = *(self.get_ref());
-					<[u8; N]>::try_from(&underlyingSlice[position..self.position() as _]).unwrap()
-				}
-			}
-
 			#[allow(non_camel_case_types)]
 			trait Copy_AddAssign_Ext {
 				fn alsoAddTo(self, to: &mut Self) -> Self;
@@ -202,7 +399,7 @@ pub mod dt1 {
 				}
 			}
 
-			Ok(Metadata { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
+			Ok(Self { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
 		}
 	}
 
@@ -387,7 +584,11 @@ pub mod dt1 {
 
 use {
 	dt1::BLOCKWIDTH,
-	std::{fs::File, io::Read, os},
+	std::{
+		fs::File,
+		io::{self, Read},
+		os,
+	},
 };
 
 pub struct Image {
@@ -517,6 +718,40 @@ impl TileColumns {
 	}
 }
 
+trait ReadExt {
+	fn consumeZeros(&mut self, zerosCount: usize);
+	fn read_u8_array<const N: usize>(&mut self) -> [u8; N];
+	fn remaining(&self) -> usize;
+}
+impl ReadExt for io::Cursor<&[u8]> {
+	fn consumeZeros(&mut self, zerosCount: usize) {
+		let position = self.position() as usize;
+		self.set_position((position + zerosCount) as _);
+		let underlyingSlice = *(self.get_ref());
+		assert!(allZeros(&underlyingSlice[position..self.position() as _]));
+
+		fn allZeros(byteSlice: &[u8]) -> bool {
+			for &byte in byteSlice {
+				if byte != 0 {
+					return false;
+				}
+			}
+			true
+		}
+	}
+	fn read_u8_array<const N: usize>(&mut self) -> [u8; N] {
+		let position = self.position() as usize;
+		self.set_position((position + N) as _);
+		let underlyingSlice = *(self.get_ref());
+		<[u8; N]>::try_from(&underlyingSlice[position..self.position() as _]).unwrap()
+	}
+	fn remaining(&self) -> usize {
+		let position = self.position() as usize;
+		let underlyingSlice = *(self.get_ref());
+		underlyingSlice.len() - position
+	}
+}
+
 pub trait UsizeExt {
 	fn nextMultipleOf(self, rhs: Self) -> Self;
 }
@@ -536,32 +771,10 @@ pub const fn log2(of: usize) -> usize {
 }
 
 #[macro_export]
-macro_rules! cоnst {
-	( $expr: expr ) => {{
-		const CONST: usize = $expr;
-		CONST
-	}};
-}
-
-#[macro_export]
-macro_rules! array_fromFn {
-	(|$i: ident| $expr: expr) => {{
-		#[inline(always)]
-		const fn array_fromFn() -> [T; N] {
-			let mut array: [MaybeUninit<T>; N] = unsafe { MaybeUninit::uninit().assume_init() };
-			{
-				let mut i = 0;
-				while i < array.len() {
-					array[i] = {
-						let $i = i;
-						MaybeUninit::new($expr as T)
-					};
-					i += 1;
-				}
-			}
-			unsafe { transmute::<_, [T; N]>(array) }
-		}
-		array_fromFn()
+macro_rules! stringifyId {
+	($id: ident) => {{
+		_ = $id;
+		stringify!($id)
 	}};
 }
 

@@ -2,13 +2,10 @@
 #![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
+	array_macro::array,
 	const_format::formatcp,
-	core::{
-		mem::{transmute, MaybeUninit},
-		str::FromStr,
-	},
+	core::str::FromStr,
 	d2sw_tiled_project::{
-		array_fromFn,
 		dt1::{self, DrawDestination},
 		stdoutRaw, VecExt,
 	},
@@ -52,11 +49,7 @@ fn main() {
 			}
 		}
 	}
-	let mut arrayIndices = {
-		type T = u8;
-		const N: usize = UsedPALIndicesFrequency::LEN;
-		array_fromFn!(|i| i)
-	};
+	let mut arrayIndices = array![i => i as u8; UsedPALIndicesFrequency::LEN];
 	arrayIndices.sort_by(|a, b| counts[*a as usize].cmp(&counts[*b as usize]));
 	for i in arrayIndices {
 		writeln!(stdout, "{i}\t{}", counts[i as usize]).unwrap();
