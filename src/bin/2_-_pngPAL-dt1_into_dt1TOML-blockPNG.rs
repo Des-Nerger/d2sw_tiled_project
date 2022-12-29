@@ -13,7 +13,7 @@ use {
 fn main() -> Result<(), dt1::VersionMismatchError> {
 	let buffer = &mut Vec::<u8>::new();
 	io::stdin().read_to_end(buffer).unwrap();
-	let (swappedPAL, dt1) = buffer.as_slice().split_at(PAL_LEN);
+	let (pngPAL, dt1) = buffer.as_slice().split_at(PAL_LEN);
 	#[allow(unused_variables)]
 	let buffer = ();
 
@@ -24,7 +24,7 @@ fn main() -> Result<(), dt1::VersionMismatchError> {
 	write!(stdout, "{}\n{toml}", toml.len()).unwrap();
 	let mut png = png::Encoder::new(stdout, image.width() as _, image.height() as _);
 	png.set_color(ColorType::Indexed);
-	png.set_palette(swappedPAL);
+	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);
 	png.write_header().unwrap().write_image_data(&image.data).unwrap();
 	Ok(())

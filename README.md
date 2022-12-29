@@ -4,11 +4,11 @@
 $ export RUSTFLAGS="$RUSTFLAGS -C prefer-dynamic" # optional
 $ export PATH_D2_EXTRACTED="/full/path/to/Diablo II Shareware v 1.04"/*.mpq/extracted
 
-$ i=1; cargo run --release --offline --bin 1_-_pal_into_swappedPAL \
-    <"$PATH_D2_EXTRACTED"/data/global/palette/[Aa][Cc][Tt]${i}/pal.dat >/dev/shm/act${i}_swappedPAL.dat
+$ i=1; cargo run --release --offline --bin 1_-_pal_into_pngPAL \
+    <"$PATH_D2_EXTRACTED"/data/global/palette/[Aa][Cc][Tt]${i}/pal.dat >/dev/shm/act${i}_pngPAL.dat
 
 $ cargo build --release --offline --bin dubsplit \
-              --bin 2_-_swappedPAL-dt1_into_dt1TOML-blockPNG --bin 3_-_dt1TOML-blockPNG_into_tilePNG \
+              --bin 2_-_pngPAL-dt1_into_dt1TOML-blockPNG --bin 3_-_dt1TOML-blockPNG_into_tilePNG \
     && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print0 \
          | while read -d $'\0' f; do
              [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
@@ -17,8 +17,8 @@ $ cargo build --release --offline --bin dubsplit \
              b="${BASH_REMATCH[2]}"
              p="${BASH_REMATCH[1]}/$b "
              echo -n "$p" 1>&2
-             cat /dev/shm/act${i}_swappedPAL.dat "$f" \
-               | { target/release/2_-_swappedPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
+             cat /dev/shm/act${i}_pngPAL.dat "$f" \
+               | { target/release/2_-_pngPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
                | tee >(target/release/dubsplit "$d/$b".dt1.toml >"$d/$b".block.png) \
                | target/release/3_-_dt1TOML-blockPNG_into_tilePNG >"$d/$b".tile.png
            done

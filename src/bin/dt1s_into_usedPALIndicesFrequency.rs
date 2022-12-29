@@ -49,8 +49,9 @@ fn main() {
 			}
 		}
 	}
-	let mut arrayIndices = array![i => i as u8; UsedPALIndicesFrequency::LEN];
-	arrayIndices.sort_by(|a, b| counts[*a as usize].cmp(&counts[*b as usize]));
+	assert_eq!(filesizeLine.capacity(), FILESIZE_LINE.len());
+	let mut arrayIndices = array![j => j as u8; UsedPALIndicesFrequency::LEN];
+	arrayIndices.sort_by_key(|&i| counts[i as usize]);
 	for i in arrayIndices {
 		writeln!(stdout, "{i}\t{}", counts[i as usize]).unwrap();
 	}

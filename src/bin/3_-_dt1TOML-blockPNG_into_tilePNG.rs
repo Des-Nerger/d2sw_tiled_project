@@ -45,7 +45,7 @@ fn main() -> ExitCode {
 		Ok(string)
 	}
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
-	let (srcImage, swappedPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
+	let (srcImage, pngPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
 	let mut maxTileHeight = 0;
 	{
 		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImage);
@@ -140,7 +140,7 @@ fn main() -> ExitCode {
 	}
 	let mut png = png::Encoder::new(stdout, destImage.width() as _, destImage.height() as _);
 	png.set_color(ColorType::Indexed);
-	png.set_palette(swappedPAL);
+	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);
 	png.write_header().unwrap().write_image_data(&destImage.data).unwrap();
 
