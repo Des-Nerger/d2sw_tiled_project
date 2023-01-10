@@ -27,7 +27,7 @@ $ i=1; find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt
     | cargo run --release --offline --bin dubcat \
     | cargo run --release --offline --bin dt1s_into_usedPALIndicesFrequency
 
-$ i=1; cargo build --release --offline --bin 4_-_ds1_into_ds1TOML \
+$ i=1; cargo build --release --offline --bin ds1_into_ds1TOML \
     && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.ds1" -print0 \
          | while read -d $'\0' f; do
              [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
@@ -35,6 +35,8 @@ $ i=1; cargo build --release --offline --bin 4_-_ds1_into_ds1TOML \
              mkdir -p "$d"
              b="${BASH_REMATCH[2]}"
              echo -n "${BASH_REMATCH[1]}/$b " 1>&2
-             target/release/4_-_ds1_into_ds1TOML <"$f" >"$d/$b".ds1.toml
+             target/release/ds1_into_ds1TOML <"$f" >"$d/$b".ds1.toml
            done
+
+$ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_rhombPackedTilePNG <'/tmp/d2_act1/Crypt/Floor.tile.png' >'/tmp/d2_act1/Crypt/Floor.rhombPackedTile.png'
 ```

@@ -9,7 +9,7 @@ use {
 	},
 	d2sw_tiled_project::{
 		dt1::{self, DrawDestination, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, TILEWIDTH},
-		log2, stdoutRaw, Image, TileColumns, UsizeExt, Vec2Ext, FULLY_TRANSPARENT,
+		log2, stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext, FULLY_TRANSPARENT,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -143,27 +143,5 @@ fn main() -> ExitCode {
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);
 	png.write_header().unwrap().write_image_data(&destImage.data).unwrap();
-
-	struct TilesIterator<const TILEWIDTH: usize>(TileColumns);
-	impl<const TILEWIDTH: usize> TilesIterator<TILEWIDTH> {
-		#[inline(always)]
-		fn new(image: &Image) -> Self {
-			Self(TileColumns {
-				fullColumnHeight: image.data.len() >> image.widthLog2,
-				numOverflownColumns: 0,
-				lastColumnHeight: 0,
-			})
-		}
-		#[inline(always)]
-		fn next(&mut self, tileHeight: usize) -> [usize; 2] {
-			let tileColumns = self.0.clone();
-			if self.0.pushTile(tileHeight) != 0 {
-				[self.0.numOverflownColumns * TILEWIDTH, 0]
-			} else {
-				[tileColumns.numOverflownColumns * TILEWIDTH, tileColumns.lastColumnHeight]
-			}
-		}
-	}
-
 	ExitCode::SUCCESS
 }

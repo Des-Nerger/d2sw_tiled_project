@@ -612,8 +612,6 @@ impl Image {
 		srcImage: &Self,
 		srcPoint: Vec2,
 	) {
-		const X: usize = 0;
-		const Y: usize = 1;
 		const WIDTH: usize = 0;
 		const HEIGHT: usize = 1;
 		let mut i = srcPoint[X] + (srcPoint[Y] << srcImage.widthLog2);
@@ -642,6 +640,8 @@ impl Image {
 	}
 }
 pub type Vec2 = [usize; 2];
+pub const X: usize = 0;
+pub const Y: usize = 1;
 pub trait Vec2Ext {
 	fn add(self, rhs: Self) -> Self;
 }
@@ -687,6 +687,27 @@ impl TileColumns {
 	#[inline(always)]
 	pub const fn dimensions(&self, tileWidth: usize) -> [usize; 2] {
 		[(self.numOverflownColumns + 1) * tileWidth, self.fullColumnHeight]
+	}
+}
+
+pub struct TilesIterator<const TILEWIDTH: usize>(pub TileColumns);
+impl<const TILEWIDTH: usize> TilesIterator<TILEWIDTH> {
+	#[inline(always)]
+	pub fn new(image: &Image) -> Self {
+		Self(TileColumns {
+			fullColumnHeight: image.data.len() >> image.widthLog2,
+			numOverflownColumns: 0,
+			lastColumnHeight: 0,
+		})
+	}
+	#[inline(always)]
+	pub fn next(&mut self, tileHeight: usize) -> [usize; 2] {
+		let tileColumns = self.0.clone();
+		if self.0.pushTile(tileHeight) != 0 {
+			[self.0.numOverflownColumns * TILEWIDTH, 0]
+		} else {
+			[tileColumns.numOverflownColumns * TILEWIDTH, tileColumns.lastColumnHeight]
+		}
 	}
 }
 
