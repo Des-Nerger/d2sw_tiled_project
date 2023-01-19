@@ -19,7 +19,7 @@ $ cargo build --release --offline --bin dubsplit \
              echo -n "$p" 1>&2
              cat /dev/shm/act${i}_pngPAL.dat "$f" \
                | { target/release/2_-_pngPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
-               | tee >(target/release/dubsplit "$d/$b".dt1.toml >"$d/$b".block.png) \
+               | tee >(target/release/dubsplit "$d/$b".dt1.toml >/dev/null) \
                | target/release/3_-_dt1TOML-blockPNG_into_tilePNG >"$d/$b".tile.png
            done
 
@@ -38,5 +38,11 @@ $ i=1; cargo build --release --offline --bin ds1_into_ds1TOML \
              target/release/ds1_into_ds1TOML <"$f" >"$d/$b".ds1.toml
            done
 
-$ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_rhombPackedTilePNG <'/tmp/d2_act1/Crypt/Floor.tile.png' >'/tmp/d2_act1/Crypt/Floor.rhombPackedTile.png'
+$ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
+    <'/tmp/d2_act1/Crypt/Floor.tile.png' >'/tmp/d2_act1/Crypt/Floor.rhombPackedTile.png'
+
+$ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_noisySquareTilePNG \
+    <'/tmp/d2_act1/Crypt/Floor.tile.png' >'/tmp/d2_act1/Crypt/Floor.noisySquareTile.png'
+
+$ echo Floor.rhombPackedTile.waifu2x.png | cargo run --release --offline --bin dubcat | cat - Floor.rhombPackedTile.png | cargo run --release --offline --bin waifu2xPNG-originalIndexedPNG_into_fixedWaifu2xPNG >Floor.rhombPackedTile.fixedWaifu2x.png
 ```

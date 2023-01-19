@@ -108,8 +108,7 @@ pub mod ds1 {
 			let mut layers = Vec::new();
 			for _ in 0..numWallLayers * 2 + numFloors + ONE_SHADOW_LAYER as i32 + existsTagLayer(tagType) as i32
 			{
-				let mut layer = Vec::with_capacity(((xMax + 1) * (yMax + 1)) as _);
-				layer.setLen(layer.capacity());
+				let mut layer = Vec::withLen(((xMax + 1) * (yMax + 1)) as _);
 				cursor.read_u32_into::<LE>(&mut layer).unwrap();
 				layers.push(layer);
 			}
@@ -578,8 +577,7 @@ impl Image {
 			assert!(width.is_power_of_two());
 			log2(width)
 		};
-		let mut data = Vec::with_capacity(png.output_buffer_size());
-		data.setLen(data.capacity());
+		let mut data = Vec::withLen(png.output_buffer_size());
 		let len = png.next_frame(&mut data).unwrap().buffer_size();
 		data.setLen(len);
 		Self { widthLog2, data }
@@ -644,10 +642,17 @@ pub const X: usize = 0;
 pub const Y: usize = 1;
 pub trait Vec2Ext {
 	fn add(self, rhs: Self) -> Self;
+	fn addAssign(&mut self, rhs: Self);
 }
 impl Vec2Ext for Vec2 {
+	#[inline(always)]
 	fn add(self, rhs: Self) -> Self {
 		[self[0].wrapping_add(rhs[0]), self[1].wrapping_add(rhs[1])]
+	}
+
+	#[inline(always)]
+	fn addAssign(&mut self, rhs: Self) {
+		*self = self.add(rhs);
 	}
 }
 pub const FULLY_TRANSPARENT: u8 = 0;
@@ -771,9 +776,17 @@ macro_rules! stringifyId {
 }
 
 pub trait VecExt {
+	fn withLen(len: usize) -> Self;
 	fn setLen(&mut self, newLen: usize);
 }
 impl<T> VecExt for Vec<T> {
+	#[inline(always)]
+	fn withLen(len: usize) -> Self {
+		let mut sеlf = Self::with_capacity(len);
+		sеlf.setLen(len);
+		sеlf
+	}
+	#[inline(always)]
 	fn setLen(&mut self, newLen: usize) {
 		if !cfg!(debug_assertions) {
 			assert!(newLen <= self.capacity());
