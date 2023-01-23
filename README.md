@@ -44,5 +44,8 @@ $ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_rhombPackedTileP
 $ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_noisySquareTilePNG \
     <'/tmp/d2_act1/Crypt/Floor.tile.png' >'/tmp/d2_act1/Crypt/Floor.noisySquareTile.png'
 
-$ echo Floor.rhombPackedTile.waifu2x.png | cargo run --release --offline --bin dubcat | cat - Floor.rhombPackedTile.png | cargo run --release --offline --bin waifu2xPNG-originalIndexedPNG_into_fixedWaifu2xPNG >Floor.rhombPackedTile.fixedWaifu2x.png
+$ p=Floor.rhombPackedTile; echo $p.waifu2x.png | cargo run --release --offline --bin dubcat \
+    | cat - $p.png \
+    | cargo run --release --offline --bin waifu2xPNG-originalIndexedPNG_into_fixedWaifu2xPNG \
+        >$p.fixedWaifu2x.png
 ```

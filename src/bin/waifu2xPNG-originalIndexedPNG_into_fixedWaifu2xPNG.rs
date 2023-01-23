@@ -4,7 +4,7 @@
 use {
 	array_macro::array,
 	core::str::{self, FromStr},
-	d2sw_tiled_project::{stdoutRaw, VecExt, FULLY_TRANSPARENT},
+	d2sw_tiled_project::{stdoutRaw, Image, VecExt, FULLY_TRANSPARENT},
 	glam::{IVec3, IVec4},
 	memchr::memchr,
 	png::ColorType,
@@ -28,22 +28,18 @@ fn main() {
 		(vec, png.info().width as usize)
 	};
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
-	let orig = &mut Vec::withLen(png.output_buffer_size());
-	{
-		let len = png.next_frame(orig).unwrap().buffer_size();
-		orig.setLen(len);
-	}
-	let origInfo = png.info();
-	assert_eq!(origInfo.width * 2, width as _);
+	let Image { width: origWidth, height: origHeight, data: ref mut orig } = Image::fromPNG(png);
+	assert_eq!(origWidth * 2, width);
 	const RGB_SIZE: usize = 3;
 	const RGBA_SIZE: usize = RGB_SIZE + 1;
 	let (pngPAL, fixedWaifu2x) =
-		(origInfo.palette.as_ref().unwrap().as_ref(), &mut Vec::withLen(waifu2x.len() / RGBA_SIZE));
+		(png.info().palette.as_ref().unwrap().as_ref(), &mut Vec::withLen(waifu2x.len() / RGBA_SIZE));
 	{
 		let (mut i, mut x, neighborhood3x3, mut js) = (
 			0,
 			0,
-			array![i => (i / 3 - 1) * origInfo.width as usize + i % 3 - 1; 3*3],
+			// array![i => (i / 3 - 1) * origWidth + i % 3 - 1; 3*3],
+			[0 - origWidth, usize::MAX, 0, 1, origWidth],
 			array![i => i / 2 * width + i % 2; 2*2],
 		);
 		while i < orig.len() {
@@ -58,10 +54,10 @@ fn main() {
 					}
 					.map(|colorComponent| colorComponent as _),
 				);
-				let (mut nearestDistance, mut nearestPALEntry) = {
+				let (mut nearestDistance, mut nearestPALEntry) = (i32::MAX, {
 					const INVALID_PAL_ENTRY: usize = usize::MAX;
-					(i32::MAX, INVALID_PAL_ENTRY)
-				};
+					INVALID_PAL_ENTRY
+				});
 				for neighbor in neighbors {
 					let distance = (rgba
 						- IVec4::from((
@@ -95,7 +91,7 @@ fn main() {
 			js = js.map(|j| j + Δj);
 		}
 	}
-	let mut png = png::Encoder::new(stdout, width as _, origInfo.height * 2);
+	let mut png = png::Encoder::new(stdout, width as _, (origHeight * 2) as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);

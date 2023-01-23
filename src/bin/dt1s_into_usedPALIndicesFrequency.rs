@@ -63,12 +63,12 @@ fn main() {
 	const IRRELEVANT: usize = 0;
 	impl DrawDestination for UsedPALIndicesFrequency<'_> {
 		#[inline(always)]
-		fn widthLog2(&self) -> usize {
+		fn width(&self) -> usize {
 			IRRELEVANT
 		}
 		#[inline(always)]
-		fn putpixel(&mut self, _atIndex: usize, withValue: u8) {
-			self.0[withValue as usize] += 1;
+		fn putpixel(&mut self, _atIndex: usize, value: u8) {
+			self.0[value as usize] += 1;
 		}
 	}
 }

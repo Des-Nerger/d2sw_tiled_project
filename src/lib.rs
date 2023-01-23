@@ -202,7 +202,7 @@ pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
 	use {
-		super::{log2, ReadExt, TileColumns},
+		super::{ReadExt, TileColumns},
 		byteorder::{ReadBytesExt, LE},
 		core::{
 			cmp::{max, min},
@@ -363,10 +363,10 @@ pub mod dt1 {
 			trait Copy_AddAssign_Ext {
 				fn alsoAddTo(self, to: &mut Self) -> Self;
 			}
-			impl<T: Copy + ops::AddAssign> Copy_AddAssign_Ext for T {
+			impl<T: Copy + super::CopyExt + ops::AddAssign> Copy_AddAssign_Ext for T {
+				#[inline(always)]
 				fn alsoAddTo(self, to: &mut Self) -> Self {
-					*to += self;
-					self
+					self.also(|&Δ| *to += Δ)
 				}
 			}
 
@@ -378,13 +378,8 @@ pub mod dt1 {
 	type DrawFn<implDrawDestination> = fn(&mut implDrawDestination, x0: usize, y0: usize, data: &[u8]);
 
 	pub trait DrawDestination {
-		fn widthLog2(&self) -> usize;
-		fn putpixel(&mut self, atIndex: usize, withValue: u8);
-
-		#[inline(always)]
-		fn width(&self) -> usize {
-			1 << self.widthLog2()
-		}
+		fn width(&self) -> usize;
+		fn putpixel(&mut self, atIndex: usize, value: u8);
 
 		/*
 			3D-isometric Block :
@@ -401,11 +396,12 @@ pub mod dt1 {
 			assert_eq!(length, 256);
 
 			// draw
-			let (mut i, mut y, widthLog2) = (0, 0, self.widthLog2());
+			let [mut Δy, width] = [0, self.width()];
+			let [mut i, mut yMulWidthAddX0] = [0, y0 * width + x0];
 			while length > 0 {
 				static XJUMP: [u8; 15] = [14, 12, 10, 8, 6, 4, 2, 0, 2, 4, 6, 8, 10, 12, 14];
 				static NBPIX: [u8; 15] = [4, 8, 12, 16, 20, 24, 28, 32, 28, 24, 20, 16, 12, 8, 4];
-				let (mut j, mut n) = (((y0 + y) << widthLog2) + x0 + XJUMP[y] as usize, NBPIX[y] as usize);
+				let [mut j, mut n] = [yMulWidthAddX0 + XJUMP[Δy] as usize, NBPIX[Δy] as usize];
 				length -= n;
 				while n != 0 {
 					self.putpixel(j, data[i]);
@@ -413,7 +409,8 @@ pub mod dt1 {
 					j += 1;
 					n -= 1;
 				}
-				y += 1;
+				Δy += 1;
+				yMulWidthAddX0 += width;
 			}
 		}
 
@@ -424,13 +421,12 @@ pub mod dt1 {
 			when 1st and 2nd bytes are 0 and 0, next line.
 		*/
 		fn drawBlockNormal(&mut self, x0: usize, y0: usize, data: &[u8]) {
-			let (mut length, widthLog2) = (data.len(), self.widthLog2());
+			let [mut length, width] = [data.len(), self.width()];
 
 			// draw
-			let (mut i, mut y, j0) = (0, 0, |y| ((y0 + y) << widthLog2) + x0);
-			let mut j = j0(y);
+			let (mut i, [mut j, mut yMulWidthAddX0]) = (0, [y0 * width + x0; 2]);
 			while length > 0 {
-				let (xjump, mut xsolid) = (data[i + 0] as usize, data[i + 1] as usize);
+				let [xjump, mut xsolid] = [data[i + 0] as usize, data[i + 1] as usize];
 				i += 2;
 				length -= 2;
 				if xjump != 0 || xsolid != 0 {
@@ -443,8 +439,8 @@ pub mod dt1 {
 						xsolid -= 1;
 					}
 				} else {
-					y += 1;
-					j = j0(y);
+					yMulWidthAddX0 += width;
+					j = yMulWidthAddX0;
 				}
 			}
 		}
@@ -469,8 +465,8 @@ pub mod dt1 {
 				minBlockHeight = min(minBlockHeight, blockHeight);
 				maxBlockHeight = max(maxBlockHeight, blockHeight);
 			}
-			let height;
-			let widthLog2 = {
+			let (pow2Width, height);
+			{
 				let chosenTileColumns = &{
 					let choices = &mut Vec::<TileColumns>::new();
 					choices.push(TileColumns {
@@ -513,7 +509,7 @@ pub mod dt1 {
 				};
 				let width;
 				[width, height] = chosenTileColumns.dimensions(BLOCKWIDTH);
-				let pow2Width = width.next_power_of_two();
+				pow2Width = width.next_power_of_two();
 				eprintln!(
 					"{}; {}",
 					format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
@@ -522,9 +518,8 @@ pub mod dt1 {
 						chosenTileColumns.lastColumnHeight
 					),
 				);
-				log2(pow2Width)
-			};
-			let mut image = Self { widthLog2, data: vec![0; height << widthLog2] };
+			}
+			let mut image = Self::fromWidthHeight(pow2Width, height);
 			let (mut x, mut y) = (0, 0);
 			for tile in tiles {
 				for block in &tile.blocks {
@@ -563,43 +558,51 @@ use {
 };
 
 pub struct Image {
-	pub widthLog2: usize,
+	pub width: usize,
+	pub height: usize,
 	pub data: Vec<u8>,
 }
 impl Image {
 	#[inline(always)]
-	pub fn height(&self) -> usize {
-		self.data.len() >> self.widthLog2
+	pub fn fromWidthData(width: usize, data: Vec<u8>) -> Self {
+		Self {
+			width,
+			height: {
+				let len = data.len();
+				assert_eq!(len % width, 0);
+				len / width
+			},
+			data,
+		}
+	}
+	#[inline(always)]
+	pub fn fromWidthHeight(width: usize, height: usize) -> Self {
+		Self { width, height, data: vec![FULLY_TRANSPARENT; width * height] }
 	}
 	pub fn fromPNG(png: &mut png::Reader<impl Read>) -> Self {
-		let widthLog2 = {
-			let width = png.info().width as usize;
-			assert!(width.is_power_of_two());
-			log2(width)
-		};
 		let mut data = Vec::withLen(png.output_buffer_size());
 		let len = png.next_frame(&mut data).unwrap().buffer_size();
 		data.setLen(len);
-		Self { widthLog2, data }
+		Self::fromWidthData(png.info().width as _, data)
 	}
 	pub fn ΔyBoundsᐸBLOCKWIDTHᐳ(&mut self, [x0, y0]: Vec2, height: usize) -> [i16; 2] {
-		let [mut startΔy, mut endΔy] = [0, height];
-		let [mut i, ΔiNextLine] = [x0 + (y0 << self.widthLog2), 1 << self.widthLog2];
+		let [mut startΔy, mut endΔy, width] = [0, height, self.width];
+		let mut i = x0 + y0 * width;
 		const FULLY_TRANSPARENT_LINE: &[u8; BLOCKWIDTH] = &[FULLY_TRANSPARENT; BLOCKWIDTH];
 		while startΔy < endΔy {
 			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_LINE {
 				break;
 			}
 			startΔy += 1;
-			i += ΔiNextLine;
+			i += width;
 		}
-		i = x0 + ((y0 + height - 1) << self.widthLog2);
+		i = x0 + (y0 + height - 1) * width;
 		while startΔy < endΔy {
 			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_LINE {
 				break;
 			}
 			endΔy -= 1;
-			i -= ΔiNextLine;
+			i -= width;
 		}
 		[startΔy as _, endΔy as _]
 	}
@@ -612,12 +615,13 @@ impl Image {
 	) {
 		const WIDTH: usize = 0;
 		const HEIGHT: usize = 1;
-		let mut i = srcPoint[X] + (srcPoint[Y] << srcImage.widthLog2);
-		let ΔiNextLine = (1 << srcImage.widthLog2) - dimensions[WIDTH];
-		let mut j = destPoint[X] + (destPoint[Y] << self.widthLog2);
-		let ΔjNextLine = (1 << self.widthLog2) - dimensions[WIDTH];
-		let (mut Δx, mut Δy) = (0, 0);
+		let mut i = srcPoint[X] + srcPoint[Y] * srcImage.width;
+		let ΔiNextLine = srcImage.width - dimensions[WIDTH];
+		let mut j = destPoint[X] + destPoint[Y] * self.width;
+		let ΔjNextLine = self.width - dimensions[WIDTH];
+		let mut Δy = 0;
 		while Δy < dimensions[HEIGHT] {
+			let mut Δx = 0;
 			while Δx < dimensions[WIDTH] {
 				match srcImage.data[i] {
 					FULLY_TRANSPARENT => {}
@@ -630,7 +634,6 @@ impl Image {
 				i += 1;
 				j += 1;
 			}
-			Δx = 0;
 			Δy += 1;
 			i += ΔiNextLine;
 			j += ΔjNextLine;
@@ -658,8 +661,8 @@ impl Vec2Ext for Vec2 {
 pub const FULLY_TRANSPARENT: u8 = 0;
 impl dt1::DrawDestination for Image {
 	#[inline(always)]
-	fn widthLog2(&self) -> usize {
-		self.widthLog2
+	fn width(&self) -> usize {
+		self.width
 	}
 	#[inline(always)]
 	fn putpixel(&mut self, atIndex: usize, value: u8) {
@@ -699,11 +702,7 @@ pub struct TilesIterator<const TILEWIDTH: usize>(pub TileColumns);
 impl<const TILEWIDTH: usize> TilesIterator<TILEWIDTH> {
 	#[inline(always)]
 	pub fn new(image: &Image) -> Self {
-		Self(TileColumns {
-			fullColumnHeight: image.data.len() >> image.widthLog2,
-			numOverflownColumns: 0,
-			lastColumnHeight: 0,
-		})
+		Self(TileColumns { fullColumnHeight: image.height, numOverflownColumns: 0, lastColumnHeight: 0 })
 	}
 	#[inline(always)]
 	pub fn next(&mut self, tileHeight: usize) -> [usize; 2] {
@@ -751,6 +750,7 @@ impl<T: AsRef<[u8]>> ReadExt for io::Cursor<T> {
 
 pub trait UsizeExt {
 	fn nextMultipleOf(self, rhs: Self) -> Self;
+	fn mulSignumOf(self, rhs: Self) -> Self;
 }
 impl UsizeExt for usize {
 	#[inline(always)]
@@ -759,6 +759,11 @@ impl UsizeExt for usize {
 			0 => self,
 			r => self + (rhs - r),
 		}
+	}
+	#[inline(always)]
+	fn mulSignumOf(self, rhs: Self) -> Self {
+		let signBits = (rhs as isize >> (usize::BITS - 1)) as usize;
+		(self ^ signBits) - signBits
 	}
 }
 
@@ -792,6 +797,17 @@ impl<T> VecExt for Vec<T> {
 			assert!(newLen <= self.capacity());
 		}
 		unsafe { self.set_len(newLen) };
+	}
+}
+
+pub trait CopyExt {
+	fn also(self, f: impl FnOnce(&Self)) -> Self;
+}
+impl<T: Copy> CopyExt for T {
+	#[inline(always)]
+	fn also(self, f: impl FnOnce(&Self)) -> Self {
+		f(&self);
+		self
 	}
 }
 

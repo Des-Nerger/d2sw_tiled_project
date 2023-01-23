@@ -8,8 +8,8 @@ use {
 		str::{self, FromStr},
 	},
 	d2sw_tiled_project::{
-		dt1::{self, DrawDestination, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, TILEWIDTH},
-		log2, stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext, FULLY_TRANSPARENT,
+		dt1::{self, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, TILEWIDTH},
+		stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -69,8 +69,8 @@ fn main() -> ExitCode {
 		});
 	}
 	let destImage = &mut {
-		let height;
-		let widthLog2 = {
+		let (pow2Width, height);
+		{
 			let chosenTileColumns = &{
 				let choices = &mut Vec::<TileColumns>::new();
 				choices.push(TileColumns {
@@ -110,7 +110,7 @@ fn main() -> ExitCode {
 			};
 			let width;
 			[width, height] = chosenTileColumns.dimensions(TILEWIDTH);
-			let pow2Width = width.next_power_of_two();
+			pow2Width = width.next_power_of_two();
 			eprintln!(
 				"{}; {}",
 				format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
@@ -119,9 +119,8 @@ fn main() -> ExitCode {
 					chosenTileColumns.lastColumnHeight,
 				),
 			);
-			log2(pow2Width)
-		};
-		Image { widthLog2, data: vec![FULLY_TRANSPARENT; height << widthLog2] }
+		}
+		Image::fromWidthHeight(pow2Width, height)
 	};
 	{
 		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImage);
@@ -138,7 +137,7 @@ fn main() -> ExitCode {
 			}
 		}
 	}
-	let mut png = png::Encoder::new(stdout, destImage.width() as _, destImage.height() as _);
+	let mut png = png::Encoder::new(stdout, destImage.width as _, destImage.height as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);

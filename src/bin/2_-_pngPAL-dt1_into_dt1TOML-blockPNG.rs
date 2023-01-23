@@ -2,10 +2,7 @@
 #![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
-	d2sw_tiled_project::{
-		dt1::{self, DrawDestination},
-		stdoutRaw, Image, PAL_LEN,
-	},
+	d2sw_tiled_project::{dt1, stdoutRaw, Image, PAL_LEN},
 	png::ColorType,
 	std::io::{self, BufWriter, Read, Write},
 };
@@ -22,7 +19,7 @@ fn main() -> Result<(), dt1::VersionMismatchError> {
 	let stdout = &mut BufWriter::new(stdoutRaw());
 	let toml = &toml::to_string(dt1Metadata).unwrap_or_else(|err| panic!("{err}"));
 	write!(stdout, "{}\n{toml}", toml.len()).unwrap();
-	let mut png = png::Encoder::new(stdout, image.width() as _, image.height() as _);
+	let mut png = png::Encoder::new(stdout, image.width as _, image.height as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);
