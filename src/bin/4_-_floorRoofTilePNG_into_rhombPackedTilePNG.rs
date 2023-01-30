@@ -15,7 +15,10 @@ fn main() {
 	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let (srcImage, pngPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
-	let destImage = &mut Image::fromWidthHeight(srcImage.width, srcImage.height + FLOOR_ROOF_TILEHEIGHT / 2);
+	let destImage = &mut Image::fromWidthHeight(
+		srcImage.width / 2 + TILEWIDTH / 2,
+		srcImage.height + FLOOR_ROOF_TILEHEIGHT / 2,
+	);
 	{
 		let srcPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(srcImage);
 		loop {

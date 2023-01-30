@@ -202,7 +202,7 @@ pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
 	use {
-		super::{ReadExt, TileColumns},
+		super::{CopyExt, ReadExt, TileColumns, UsizeExt, Vec2, Vec2Ext, FULLY_TRANSPARENT, X, Y},
 		byteorder::{ReadBytesExt, LE},
 		core::{
 			cmp::{max, min},
@@ -236,8 +236,8 @@ pub mod dt1 {
 		}
 	}
 
-	const SUBTILE_SIZE: usize = 5;
-	const NUM_SUBTILES: usize = SUBTILE_SIZE.pow(2);
+	pub const NUM_SUBTILES_PER_LINE: usize = 5;
+	const NUM_SUBTILES: usize = NUM_SUBTILES_PER_LINE.pow(2);
 
 	#[derive(Serialize, Deserialize)]
 	pub struct Tile {
@@ -451,6 +451,10 @@ pub mod dt1 {
 	pub const BLOCKWIDTH: usize = 32;
 	pub const FLOOR_ROOF_BLOCKHEIGHT: usize = 15 + 1;
 	pub const MAX_BLOCKHEIGHT: usize = 32;
+
+	pub const SQUARE_TILE_SIZE: usize = TILEWIDTH / 2;
+	pub const SQUARE_SUBTILE_SIZE: usize = BLOCKWIDTH / 2;
+
 	pub const FLOOR_ORIENTATION: i32 = 0;
 	pub const ROOF_ORIENTATION: i32 = 15;
 
@@ -465,7 +469,7 @@ pub mod dt1 {
 				minBlockHeight = min(minBlockHeight, blockHeight);
 				maxBlockHeight = max(maxBlockHeight, blockHeight);
 			}
-			let (pow2Width, height);
+			let (width, height);
 			{
 				let chosenTileColumns = &{
 					let choices = &mut Vec::<TileColumns>::new();
@@ -507,19 +511,13 @@ pub mod dt1 {
 					});
 					mem::take(&mut choices[0])
 				};
-				let width;
 				[width, height] = chosenTileColumns.dimensions(BLOCKWIDTH);
-				pow2Width = width.next_power_of_two();
 				eprintln!(
-					"{}; {}",
-					format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
-					format_args!(
-						"lastColumnHeight = {}, minBlockHeight = {minBlockHeight}",
-						chosenTileColumns.lastColumnHeight
-					),
+					"[{width}, {height}]; lastColumnHeight = {}, minBlockHeight = {minBlockHeight}",
+					chosenTileColumns.lastColumnHeight,
 				);
 			}
-			let mut image = Self::fromWidthHeight(pow2Width, height);
+			let mut image = Self::fromWidthHeight(width, height);
 			let (mut x, mut y) = (0, 0);
 			for tile in tiles {
 				for block in &tile.blocks {
@@ -544,6 +542,38 @@ pub mod dt1 {
 				}
 			}
 			image
+		}
+
+		pub fn drawNoisySquareTile(&mut self, mut destPoint: Vec2, srcImage: &Self, mut srcPoint: Vec2) {
+			destPoint[Y] += 1;
+			srcPoint[X] += SQUARE_TILE_SIZE - 1;
+			let [mut iY, mut jY] = [srcPoint[Y] * srcImage.width, destPoint[Y] * self.width];
+			for Δx in 0..SQUARE_TILE_SIZE {
+				let [mut i, mut j] = [srcPoint[X] + iY, destPoint[X] + jY];
+				for Δy in 0..SQUARE_TILE_SIZE {
+					match srcImage.data[i] {
+						FULLY_TRANSPARENT => {}
+						pixelValue => {
+							assert_eq!(self.data[j], FULLY_TRANSPARENT);
+							self.data[j] = pixelValue;
+						}
+					}
+					i += usize::MAX + if Δy % 2 == 0 { 0 } else { srcImage.width };
+					j += self.width;
+				}
+				destPoint.addAssign([
+					1,
+					(if Δx % 2 == 0 {
+						srcPoint[X] += 2;
+						usize::MAX
+					} else {
+						srcPoint[Y] += 1;
+						iY += srcImage.width;
+						1
+					})
+					.also(|&Δy| jY += self.width.mulSignumOf(Δy)),
+				]);
+			}
 		}
 	}
 }
@@ -626,7 +656,7 @@ impl Image {
 				match srcImage.data[i] {
 					FULLY_TRANSPARENT => {}
 					pixelValue => {
-						assert_eq!(self.data[j], FULLY_TRANSPARENT);
+						// assert_eq!(self.data[j], FULLY_TRANSPARENT);
 						self.data[j] = pixelValue;
 					}
 				}
@@ -809,6 +839,13 @@ impl<T: Copy> CopyExt for T {
 		f(&self);
 		self
 	}
+}
+
+#[inline(always)]
+pub fn io_readToString(mut reader: impl Read) -> io::Result<String> {
+	let mut string = String::new();
+	reader.read_to_string(&mut string)?;
+	Ok(string)
 }
 
 #[cfg(unix)]

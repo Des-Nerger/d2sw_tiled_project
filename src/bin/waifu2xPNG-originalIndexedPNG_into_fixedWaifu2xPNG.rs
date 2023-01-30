@@ -35,15 +35,16 @@ fn main() {
 	let (pngPAL, fixedWaifu2x) =
 		(png.info().palette.as_ref().unwrap().as_ref(), &mut Vec::withLen(waifu2x.len() / RGBA_SIZE));
 	{
-		let (mut i, mut x, neighborhood3x3, mut js) = (
+		let (mut i, mut x, neighborhood, mut js) = (
 			0,
 			0,
+			array![i => (i / 5 - 2) * origWidth + i % 5 - 2; 5*5],
 			// array![i => (i / 3 - 1) * origWidth + i % 3 - 1; 3*3],
-			[0 - origWidth, usize::MAX, 0, 1, origWidth],
+			// [0 - origWidth, usize::MAX, 0, 1, origWidth],
 			array![i => i / 2 * width + i % 2; 2*2],
 		);
 		while i < orig.len() {
-			let neighbors = neighborhood3x3.map(|Δi| {
+			let neighbors = neighborhood.map(|Δi| {
 				let i = i + Δi;
 				(if !(0..orig.len()).contains(&i) { 0 } else { orig[i] }) as usize
 			});

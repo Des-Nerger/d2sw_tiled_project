@@ -20,7 +20,8 @@ $ cargo build --release --offline --bin dubsplit \
              cat /dev/shm/act${i}_pngPAL.dat "$f" \
                | { target/release/2_-_pngPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
                | tee >(target/release/dubsplit "$d/$b".dt1.toml >/dev/null) \
-               | target/release/3_-_dt1TOML-blockPNG_into_tilePNG >"$d/$b".tile.png
+               | target/release/3_-_dt1TOML-blockPNG_into_tilePNG --zealous-vertical-packing \
+                   >"$d/$b".tile.png
            done
 
 $ i=1; find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print \
@@ -48,4 +49,56 @@ $ p=Floor.rhombPackedTile; echo $p.waifu2x.png | cargo run --release --offline -
     | cat - $p.png \
     | cargo run --release --offline --bin waifu2xPNG-originalIndexedPNG_into_fixedWaifu2xPNG \
         >$p.fixedWaifu2x.png
+
+$ p=(/tmp/d2_act1/?rypt/?loor.tile.png); p=${p[@]%.tile.png}; \
+    echo $p.dt1.toml | cargo run --release --offline --bin dubcat \
+      | cat - $p.tile.png \
+      | cargo run --release --offline --bin 4_-_dt1TOML-tilePNG_into_roguelikeNoisySquareTilePNG \
+          >$p.roguelikeNoisySquareTile.png
+
+$ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TOML-blockPNG \
+                                  --bin 3_-_dt1TOML-blockPNG_into_tilePNG \
+                                  --bin dubcat --bin 4_-_dt1TOML-tilePNG_into_roguelikeNoisySquareTilePNG \
+    && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print0 \
+         | while read -d $'\0' f; do
+             [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
+             d="/tmp/d2_act${i}/${BASH_REMATCH[1]}"
+             mkdir -p "$d"
+             b="${BASH_REMATCH[2]}"
+             p="${BASH_REMATCH[1]}/$b "
+             echo -n "$p" 1>&2
+             cat /dev/shm/act${i}_pngPAL.dat "$f" \
+               | { target/release/2_-_pngPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
+               | tee >(target/release/dubsplit "$d/$b".dt1.toml >/dev/null) \
+               | target/release/3_-_dt1TOML-blockPNG_into_tilePNG \
+                   >/dev/shm/tile.png \
+               && printf "%*s" ${#p} "" 1>&2 \
+		           && echo "$d/$b".dt1.toml | target/release/dubcat | cat - /dev/shm/tile.png \
+		                | target/release/4_-_dt1TOML-tilePNG_into_roguelikeNoisySquareTilePNG \
+		                    >"$d/$b".roguelikeNoisySquareTile.png
+           done; if [[ -f /dev/shm/tile.png ]]; then rm -v /dev/shm/tile.png; fi
+
+$ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TOML-blockPNG \
+                                  --bin 3_-_dt1TOML-blockPNG_into_tilePNG \
+                                  --bin dubcat --bin 4_-_dt1TOML-tilePNG_into_roguelikeTilePNG \
+                                  --bin 4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
+    && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print0 \
+         | while read -d $'\0' f; do
+             [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
+             d="/tmp/d2_act${i}/${BASH_REMATCH[1]}"
+             mkdir -p "$d"
+             b="${BASH_REMATCH[2]}"
+             p="${BASH_REMATCH[1]}/$b "
+             echo -n "$p" 1>&2
+             cat /dev/shm/act${i}_pngPAL.dat "$f" \
+               | { target/release/2_-_pngPAL-dt1_into_dt1TOML-blockPNG && printf "%*s" ${#p} "" 1>&2 ; } \
+               | tee >(target/release/dubsplit "$d/$b".dt1.toml >/dev/null) \
+               | target/release/3_-_dt1TOML-blockPNG_into_tilePNG \
+                   >/dev/shm/tile.png \
+               && printf "%*s" ${#p} "" 1>&2 \
+		           && echo "$d/$b".dt1.toml | target/release/dubcat | cat - /dev/shm/tile.png \
+		                | target/release/4_-_dt1TOML-tilePNG_into_roguelikeTilePNG \
+		                | target/release/4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
+		                    >"$d/$b".rhombPackedRoguelikeTile.png
+           done; if [[ -f /dev/shm/tile.png ]]; then rm -v /dev/shm/tile.png; fi
 ```

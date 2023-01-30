@@ -2,6 +2,7 @@
 #![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
+	clap::Parser,
 	core::{
 		cmp::{max, min},
 		mem,
@@ -9,7 +10,7 @@ use {
 	},
 	d2sw_tiled_project::{
 		dt1::{self, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, TILEWIDTH},
-		stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext,
+		io_readToString, stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -20,6 +21,13 @@ use {
 };
 
 fn main() -> ExitCode {
+	#[derive(Parser)]
+	struct Args {
+		#[clap(long)]
+		zealousVerticalPacking: bool,
+	}
+	let Args { zealousVerticalPacking } = Args::parse();
+
 	let stdin = io::stdin();
 	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
 	let mut dt1Metadata: dt1::Metadata = {
@@ -39,11 +47,6 @@ fn main() -> ExitCode {
 		stdin.consume(filesizeLine_len);
 		toml::from_str(&io_readToString(stdin.take(filesize)).unwrap()).unwrap()
 	};
-	fn io_readToString(mut reader: impl Read) -> io::Result<String> {
-		let mut string = String::new();
-		reader.read_to_string(&mut string)?;
-		Ok(string)
-	}
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let (srcImage, pngPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
 	let mut maxTileHeight = 0;
@@ -55,8 +58,14 @@ fn main() -> ExitCode {
 			}
 			let (mut startY, mut endY, blockHeight) = (i16::MAX, i16::MIN, tile.blockHeight());
 			for block in &tile.blocks {
-				let (y, [startΔy, endΔy]) =
-					(block.y, srcImage.ΔyBoundsᐸBLOCKWIDTHᐳ(srcPoints.next(blockHeight), blockHeight));
+				let (y, [startΔy, endΔy]) = (
+					block.y,
+					if zealousVerticalPacking {
+						srcImage.ΔyBoundsᐸBLOCKWIDTHᐳ(srcPoints.next(blockHeight), blockHeight)
+					} else {
+						[0, blockHeight as _]
+					},
+				);
 				startY = min(startY, y + startΔy);
 				endY = max(endY, y + endΔy);
 			}
@@ -69,7 +78,7 @@ fn main() -> ExitCode {
 		});
 	}
 	let destImage = &mut {
-		let (pow2Width, height);
+		let (width, height);
 		{
 			let chosenTileColumns = &{
 				let choices = &mut Vec::<TileColumns>::new();
@@ -108,19 +117,13 @@ fn main() -> ExitCode {
 				});
 				mem::take(&mut choices[0])
 			};
-			let width;
 			[width, height] = chosenTileColumns.dimensions(TILEWIDTH);
-			pow2Width = width.next_power_of_two();
 			eprintln!(
-				"{}; {}",
-				format_args!("[{width}, {height}] --> [{pow2Width}, {height}]"),
-				format_args!(
-					"lastColumnHeight = {}, maxTileHeight = {maxTileHeight}",
-					chosenTileColumns.lastColumnHeight,
-				),
+				"[{width}, {height}]; lastColumnHeight = {}, maxTileHeight = {maxTileHeight}",
+				chosenTileColumns.lastColumnHeight,
 			);
 		}
-		Image::fromWidthHeight(pow2Width, height)
+		Image::fromWidthHeight(width, height)
 	};
 	{
 		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImage);
