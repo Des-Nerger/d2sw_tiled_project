@@ -202,14 +202,14 @@ pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
 	use {
-		super::{CopyExt, ReadExt, TileColumns, UsizeExt, Vec2, Vec2Ext, FULLY_TRANSPARENT, X, Y},
-		byteorder::{ReadBytesExt, LE},
+		super::{CopyExt, ReadExt, TileColumns, UsizeExt, Vec2, Vec2Ext, WriteExt, FULLY_TRANSPARENT, X, Y},
+		byteorder::{ReadBytesExt, WriteBytesExt, LE},
 		core::{
 			cmp::{max, min},
 			fmt, mem, ops,
 		},
 		serde::{Deserialize, Serialize},
-		std::io::{self, BufRead},
+		std::io::{self, BufRead, Write},
 	};
 
 	#[derive(Serialize, Deserialize)]
@@ -358,24 +358,90 @@ pub mod dt1 {
 				cursor.consume(totalLength as _);
 			}
 			assert_eq!(cursor.position(), dt1.len() as _);
-
-			#[allow(non_camel_case_types)]
-			trait Copy_AddAssign_Ext {
-				fn alsoAddTo(self, to: &mut Self) -> Self;
-			}
-			impl<T: Copy + super::CopyExt + ops::AddAssign> Copy_AddAssign_Ext for T {
-				#[inline(always)]
-				fn alsoAddTo(self, to: &mut Self) -> Self {
-					self.also(|&Δ| *to += Δ)
-				}
-			}
-
 			Ok(Self { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
 		}
+
+		pub fn writeWithBlockDataFromDT1(&self, dt1: &[u8], to: &mut impl Write) {
+			let Self { fileHeader, tiles } = self;
+			for i in fileHeader.version {
+				to.write_i32::<LE>(i).unwrap();
+			}
+			to.writeZeros(260);
+			to.write_i32::<LE>(tiles.len() as _).unwrap();
+			to.write_i32::<LE>(fileHeader.tileHeadersPointer).unwrap();
+			for &Tile {
+				direction,
+				roofHeight,
+				ref materialFlags,
+				height,
+				width,
+				orientation,
+				mainIndex,
+				subIndex,
+				rarityOrFrameIndex,
+				ref unknown,
+				ref subtileFlags,
+				blockHeadersPointer,
+				blockDataLength,
+				ref usuallyZeros,
+				ref blocks,
+			} in tiles
+			{
+				to.write_i32::<LE>(direction).unwrap();
+				to.write_i16::<LE>(roofHeight).unwrap();
+				to.write_all(materialFlags).unwrap();
+				to.write_i32::<LE>(height).unwrap();
+				to.write_i32::<LE>(width).unwrap();
+				to.writeZeros(4);
+				to.write_i32::<LE>(orientation).unwrap();
+				to.write_i32::<LE>(mainIndex).unwrap();
+				to.write_i32::<LE>(subIndex).unwrap();
+				to.write_i32::<LE>(rarityOrFrameIndex).unwrap();
+				to.write_all(unknown).unwrap();
+				to.write_all(subtileFlags).unwrap();
+				to.writeZeros(7);
+				to.write_i32::<LE>(blockHeadersPointer).unwrap();
+				to.write_i32::<LE>(blockDataLength).unwrap();
+				to.write_i32::<LE>(blocks.len() as _).unwrap();
+				to.writeZeros(4);
+				to.write_all(usuallyZeros).unwrap();
+				to.writeZeros(4);
+			}
+			for tile in tiles {
+				let (mut totalLength, blocks) = (0, &tile.blocks);
+				for &Block { x, y, gridX, gridY, ref format, length, fileOffset } in blocks {
+					to.write_i16::<LE>(x).unwrap();
+					to.write_i16::<LE>(y).unwrap();
+					to.writeZeros(2);
+					to.write_u8(gridX).unwrap();
+					to.write_u8(gridY).unwrap();
+					to.write_all(format).unwrap();
+					to.write_i32::<LE>(length.alsoAddTo(&mut totalLength)).unwrap();
+					to.writeZeros(2);
+					to.write_i32::<LE>(fileOffset).unwrap();
+				}
+				if totalLength > 0 {
+					to.write_all(&dt1[(tile.blockHeadersPointer + blocks[0].fileOffset) as _..][..totalLength as _])
+						.unwrap();
+				}
+			}
+		}
+
+		// pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut impl Write) {}
 	}
 
 	#[allow(non_camel_case_types)]
-	type DrawFn<implDrawDestination> = fn(&mut implDrawDestination, x0: usize, y0: usize, data: &[u8]);
+	trait Copy_AddAssign_Ext {
+		fn alsoAddTo(self, to: &mut Self) -> Self;
+	}
+	impl<T: Copy + super::CopyExt + ops::AddAssign> Copy_AddAssign_Ext for T {
+		#[inline(always)]
+		fn alsoAddTo(self, to: &mut Self) -> Self {
+			self.also(|&Δ| *to += Δ)
+		}
+	}
+
+	type DrawFn<ImplDrawDestination> = fn(&mut ImplDrawDestination, x0: usize, y0: usize, data: &[u8]);
 
 	pub trait DrawDestination {
 		fn width(&self) -> usize;
@@ -582,7 +648,7 @@ use {
 	dt1::BLOCKWIDTH,
 	std::{
 		fs::File,
-		io::{self, Read},
+		io::{self, Read, Write},
 		os,
 	},
 };
@@ -751,6 +817,7 @@ pub trait ReadExt {
 	fn remaining(&self) -> usize;
 }
 impl<T: AsRef<[u8]>> ReadExt for io::Cursor<T> {
+	#[inline(always)]
 	fn consumeZeros(&mut self, zerosCount: usize) {
 		let position = self.position() as usize;
 		self.set_position((position + zerosCount) as _);
@@ -766,15 +833,27 @@ impl<T: AsRef<[u8]>> ReadExt for io::Cursor<T> {
 			true
 		}
 	}
+	#[inline(always)]
 	fn read_u8_array<const N: usize>(&mut self) -> [u8; N] {
 		let position = self.position() as usize;
 		self.set_position((position + N) as _);
 		let underlyingSlice = self.get_ref().as_ref();
 		<[u8; N]>::try_from(&underlyingSlice[position..self.position() as _]).unwrap()
 	}
+	#[inline(always)]
 	fn remaining(&self) -> usize {
 		let underlyingSlice = self.get_ref().as_ref();
 		underlyingSlice.len() - self.position() as usize
+	}
+}
+
+trait WriteExt {
+	fn writeZeros(&mut self, zerosCount: u64);
+}
+impl<T: Write> WriteExt for T {
+	#[inline(always)]
+	fn writeZeros(&mut self, zerosCount: u64) {
+		io::copy(&mut io::repeat(0).take(zerosCount), self).unwrap();
 	}
 }
 

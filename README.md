@@ -101,4 +101,13 @@ $ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TO
 		                | target/release/4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
 		                    >"$d/$b".rhombPackedRoguelikeTile.png
            done; if [[ -f /dev/shm/tile.png ]]; then rm -v /dev/shm/tile.png; fi
+
+$ cargo build --release --offline --bin dt1_into_dt1 \
+    && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]1 -iname "*.dt1" -print0 \
+         | while read -d $'\0' f; do
+             [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
+             p="${BASH_REMATCH[1]}/${BASH_REMATCH[2]} "
+             echo -n "$p" 1>&2
+             target/release/dt1_into_dt1 <"$f" >/dev/shm/tmp.dt1 && cmp "$f" /dev/shm/tmp.dt1 && echo OK
+           done; if [[ -f /dev/shm/tmp.dt1 ]]; then rm -v /dev/shm/tmp.dt1; fi
 ```
