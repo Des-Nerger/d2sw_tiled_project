@@ -6,7 +6,10 @@ use {
 	const_format::formatcp,
 	core::str::FromStr,
 	d2sw_tiled_project::{
-		ds1::{self, existsTagLayer, ONE_SHADOW_LAYER},
+		ds1::{
+			self, existsTagLayer, LAYER_DRAWING_PRIORITY_MASK, MAIN_INDEX_OFFSET, ONE_SHADOW_LAYER,
+			SUB_INDEX_OFFSET,
+		},
 		dt1::FLOOR_ORIENTATION,
 		stdoutRaw, VecExt,
 	},
@@ -34,22 +37,23 @@ fn main() {
 	use CellComponentType::*;
 
 	let Args { skipWallLayers, skipFloorLayers, cellComponentType: componentType } = Args::parse();
-	let (componentMaxValue, ref mut counts) = {
-		let numValues = {
-			1 << match componentType {
-				Orientation => u8::BITS,
-				MainIndex => 6,
-				SubIndex => 6,
-			}
-		};
-		((numValues - 1) as u32, vec![0; numValues])
-	};
-
-	let (stdin, stdout) = (io::stdin(), &mut io::BufWriter::new(stdoutRaw()));
 	type Filesize = usize;
 	const FILESIZE_LINE: &'static str = formatcp!("{}\r\n", Filesize::MAX);
-	let (stdin, filesizeLine, ds1) =
-		(&mut stdin.lock(), &mut String::with_capacity(FILESIZE_LINE.len()), &mut Vec::new());
+	let componentMaxValue;
+	let (stdin, stdout, counts, filesizeLine, ds1) = &mut (
+		io::stdin().lock(),
+		io::BufWriter::new(stdoutRaw()),
+		{
+			componentMaxValue = match componentType {
+				Orientation => ds1::ORIENTATION_MASK,
+				MainIndex => ds1::MAIN_INDEX_MAX,
+				SubIndex => ds1::SUB_INDEX_MAX,
+			};
+			vec![0; (1 + componentMaxValue) as _]
+		},
+		String::with_capacity(FILESIZE_LINE.len()),
+		Vec::new(),
+	);
 	while {
 		filesizeLine.clear();
 		stdin.read_line(filesizeLine).unwrap() != 0
@@ -71,8 +75,7 @@ fn main() {
 				continue;
 			}
 			for (j, cell) in layers[i].iter().enumerate() {
-				const LAYER_DRAWING_MAX_PRIORITY: u32 = u8::MAX as _;
-				if cell & LAYER_DRAWING_MAX_PRIORITY != 0 {
+				if cell & LAYER_DRAWING_PRIORITY_MASK != 0 {
 					counts[match componentType {
 						Orientation => {
 							if isWallLayer {
@@ -81,8 +84,8 @@ fn main() {
 								FLOOR_ORIENTATION as u32
 							}
 						}
-						MainIndex => cell >> 20 & componentMaxValue,
-						SubIndex => cell >> 8 & componentMaxValue,
+						MainIndex => cell >> MAIN_INDEX_OFFSET & componentMaxValue,
+						SubIndex => cell >> SUB_INDEX_OFFSET & componentMaxValue,
 					} as usize] += 1;
 				}
 			}

@@ -6,7 +6,10 @@ use {
 	const_format::formatcp,
 	core::str::FromStr,
 	d2sw_tiled_project::{
-		ds1::{self, existsTagLayer, ONE_SHADOW_LAYER},
+		ds1::{
+			self, existsTagLayer, LAYER_DRAWING_PRIORITY_MASK, MAIN_INDEX_MAX, MAIN_INDEX_OFFSET,
+			ONE_SHADOW_LAYER, ORIENTATION_MASK, SUB_INDEX_MAX, SUB_INDEX_OFFSET,
+		},
 		dt1::FLOOR_ORIENTATION,
 		stdoutRaw, VecExt,
 	},
@@ -25,16 +28,16 @@ fn main() {
 		#[clap(long)]
 		skipFloorLayers: bool,
 	}
+	let Args { skipWallLayers, skipFloorLayers } = Args::parse();
 
-	let (Args { skipWallLayers, skipFloorLayers }, stdin, stdout) =
-		(Args::parse(), io::stdin(), &mut io::BufWriter::new(stdoutRaw()));
 	type Filesize = usize;
 	const FILESIZE_LINE: &'static str = formatcp!("{}\r\n", Filesize::MAX);
-	let (stdin, filesizeLine, ds1, map) = (
-		&mut stdin.lock(),
-		&mut String::with_capacity(FILESIZE_LINE.len()),
-		&mut Vec::new(),
-		&mut HashMap::new(),
+	let (stdin, stdout, filesizeLine, ds1, hashMap) = &mut (
+		io::stdin().lock(),
+		io::BufWriter::new(stdoutRaw()),
+		String::with_capacity(FILESIZE_LINE.len()),
+		Vec::new(),
+		HashMap::new(),
 	);
 	while {
 		filesizeLine.clear();
@@ -57,21 +60,21 @@ fn main() {
 				continue;
 			}
 			for (j, cell) in layers[i].iter().enumerate() {
-				if cell & 0xFF != 0 {
-					let key = [
-						if isWallLayer { (layers[i + 1][j] & 0xFF) as u8 } else { FLOOR_ORIENTATION as u8 },
-						(cell >> 20 & 0b11_1111) as u8,
-						(cell >> 8 & 0b11_1111) as u8,
+				if cell & LAYER_DRAWING_PRIORITY_MASK != 0 {
+					let key: [u8; 3] = [
+						if isWallLayer { (layers[i + 1][j] & ORIENTATION_MASK) as _ } else { FLOOR_ORIENTATION as _ },
+						(cell >> MAIN_INDEX_OFFSET & MAIN_INDEX_MAX) as _,
+						(cell >> SUB_INDEX_OFFSET & SUB_INDEX_MAX) as _,
 					];
-					map.insert(key, map.get(&key).unwrap_or(&0) + 1);
+					hashMap.insert(key, hashMap.get(&key).unwrap_or(&0) + 1);
 				}
 			}
 		}
 	}
 	assert_eq!(filesizeLine.capacity(), FILESIZE_LINE.len());
-	let mut keys = Vec::from_iter(map.keys());
-	keys.sort_by_key(|&key| map[key]); // not sure if sort_by_cached_key is worth it here
+	let mut keys = Vec::from_iter(hashMap.keys());
+	keys.sort_by_key(|&key| hashMap[key]); // not sure if sort_by_cached_key is worth it here
 	for key in keys {
-		writeln!(stdout, "{key:?}\t{}", map[key]).unwrap();
+		writeln!(stdout, "{key:?}\t{}", hashMap[key]).unwrap();
 	}
 }

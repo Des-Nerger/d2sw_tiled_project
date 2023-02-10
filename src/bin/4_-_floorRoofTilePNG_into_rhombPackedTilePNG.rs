@@ -11,8 +11,7 @@ use {
 };
 
 fn main() {
-	let stdin = io::stdin();
-	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
+	let stdin = &mut io::stdin().lock();
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let (srcImage, pngPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
 	let destImage = &mut Image::fromWidthHeight(
@@ -38,7 +37,8 @@ fn main() {
 			);
 		}
 	}
-	let mut png = png::Encoder::new(stdout, destImage.width as _, destImage.height as _);
+	let mut png =
+		png::Encoder::new(BufWriter::new(stdoutRaw()), destImage.width as _, destImage.height as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);

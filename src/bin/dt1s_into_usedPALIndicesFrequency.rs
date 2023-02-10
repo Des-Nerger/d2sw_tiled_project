@@ -13,14 +13,14 @@ use {
 };
 
 fn main() {
-	let (stdin, stdout) = (io::stdin(), &mut io::BufWriter::new(stdoutRaw()));
 	type Filesize = usize;
 	const FILESIZE_LINE: &'static str = formatcp!("{}\r\n", Filesize::MAX);
-	let (stdin, filesizeLine, dt1, counts) = (
-		&mut stdin.lock(),
-		&mut String::with_capacity(FILESIZE_LINE.len()),
-		&mut Vec::new(),
-		&mut [0; UsedPALIndicesFrequency::LEN],
+	let (stdin, stdout, filesizeLine, dt1, counts) = &mut (
+		io::stdin().lock(),
+		io::BufWriter::new(stdoutRaw()),
+		String::with_capacity(FILESIZE_LINE.len()),
+		Vec::new(),
+		[0; UsedPALIndicesFrequency::LEN],
 	);
 	'outer: while {
 		filesizeLine.clear();

@@ -3,8 +3,7 @@
 
 use {
 	core::mem::size_of,
-	d2sw_tiled_project::{ds1, stdoutRaw, ReadExt},
-	serde::ser,
+	d2sw_tiled_project::{ds1, stdoutRaw, toml_toStringPretty, ReadExt},
 	std::io::{self, BufRead, Read, Write},
 };
 
@@ -24,12 +23,6 @@ fn main() -> Result<(), ds1::VersionMismatchError> {
 		let mut vec = Vec::new();
 		reader.read_to_end(&mut vec)?;
 		Ok(vec)
-	}
-
-	fn toml_toStringPretty<T: ?Sized + ser::Serialize>(value: &T) -> Result<String, toml::ser::Error> {
-		let mut string = String::with_capacity(128);
-		value.serialize((&mut toml::ser::Serializer::pretty(&mut string)).pretty_array(false))?;
-		Ok(string)
 	}
 
 	Ok(())

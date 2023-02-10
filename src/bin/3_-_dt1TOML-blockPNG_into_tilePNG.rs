@@ -28,8 +28,7 @@ fn main() -> ExitCode {
 	}
 	let Args { zealousVerticalPacking } = Args::parse();
 
-	let stdin = io::stdin();
-	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
+	let stdin = &mut io::stdin().lock();
 	let mut dt1Metadata: dt1::Metadata = {
 		let (filesizeLine_len, filesize) = {
 			let buffer = stdin.fill_buf().unwrap();
@@ -140,7 +139,8 @@ fn main() -> ExitCode {
 			}
 		}
 	}
-	let mut png = png::Encoder::new(stdout, destImage.width as _, destImage.height as _);
+	let mut png =
+		png::Encoder::new(BufWriter::new(stdoutRaw()), destImage.width as _, destImage.height as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);

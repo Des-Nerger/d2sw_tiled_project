@@ -23,8 +23,7 @@ use {
 };
 
 fn main() -> ExitCode {
-	let stdin = io::stdin();
-	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
+	let stdin = &mut io::stdin().lock();
 	let mut dt1Metadata: dt1::Metadata = {
 		let (filesizeLine_len, filesize) = {
 			let buffer = stdin.fill_buf().unwrap();
@@ -48,11 +47,11 @@ fn main() -> ExitCode {
 		if tile.blocks.len() == 0 {
 			return false;
 		}
-		let (mut startY, mut endY, blockHeight) = (i16::MAX, i16::MIN, tile.blockHeight());
+		let [mut startY, mut endY, blockHeight] = [i16::MAX, i16::MIN, tile.blockHeight() as _];
 		for block in &tile.blocks {
-			let (y, [startΔy, endΔy]) = (block.y, [0, blockHeight as _]);
-			startY = min(startY, y + startΔy);
-			endY = max(endY, y + endΔy);
+			let y = block.y;
+			startY = min(startY, y);
+			endY = max(endY, y + blockHeight);
 		}
 		tile.height = ((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT) as _;
 		true
@@ -193,7 +192,8 @@ fn main() -> ExitCode {
 		*/
 		];
 	}
-	let mut png = png::Encoder::new(stdout, destImage.width as _, destImage.height as _);
+	let mut png =
+		png::Encoder::new(BufWriter::new(stdoutRaw()), destImage.width as _, destImage.height as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);

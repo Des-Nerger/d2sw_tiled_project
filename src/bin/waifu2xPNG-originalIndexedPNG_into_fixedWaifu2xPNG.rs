@@ -12,8 +12,7 @@ use {
 };
 
 fn main() {
-	let stdin = io::stdin();
-	let (stdin, stdout) = (&mut stdin.lock(), &mut BufWriter::new(stdoutRaw()));
+	let stdin = &mut io::stdin().lock();
 	let (ref waifu2x, width) = {
 		let (filesizeLine_len, filesize) = {
 			let buffer = stdin.fill_buf().unwrap();
@@ -92,7 +91,7 @@ fn main() {
 			js = js.map(|j| j + Δj);
 		}
 	}
-	let mut png = png::Encoder::new(stdout, width as _, (origHeight * 2) as _);
+	let mut png = png::Encoder::new(BufWriter::new(stdoutRaw()), width as _, (origHeight * 2) as _);
 	png.set_color(ColorType::Indexed);
 	png.set_palette(pngPAL);
 	png.set_trns(&[0][..]);

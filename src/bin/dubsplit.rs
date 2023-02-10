@@ -14,8 +14,7 @@ use {
 
 fn main() {
 	const FILESIZE_LINE: &'static str = formatcp!("{}\r\n", u64::MAX);
-	let stdin = io::stdin();
-	let (stdin, filesizeLine) = (&mut stdin.lock(), &mut String::with_capacity(FILESIZE_LINE.len()));
+	let (stdin, filesizeLine) = &mut (io::stdin().lock(), String::with_capacity(FILESIZE_LINE.len()));
 	for filepath in env::args().skip(1) {
 		filesizeLine.clear();
 		if stdin.read_line(filesizeLine).unwrap() == 0 {

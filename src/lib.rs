@@ -4,11 +4,15 @@
 pub mod ds1 {
 	use {
 		super::{ReadExt, VecExt},
-		byteorder::{ReadBytesExt, LE},
-		core::{array, fmt, mem::size_of},
+		byteorder::{ReadBytesExt, WriteBytesExt, LE},
+		core::{
+			array, fmt,
+			mem::{size_of, size_of_val},
+			slice,
+		},
 		memchr::memchr,
 		serde::{Deserialize, Serialize},
-		std::io::{self, BufRead},
+		std::io::{self, BufRead, Write},
 	};
 
 	#[derive(Serialize, Deserialize)]
@@ -68,6 +72,16 @@ pub mod ds1 {
 		pub action: i32,
 	}
 
+	pub const MAIN_INDEX_OFFSET: u32 =
+		(0b1111_i32).trailing_ones() + (SUB_INDEX_MASK | LAYER_DRAWING_PRIORITY_MASK).trailing_ones();
+	pub const MAIN_INDEX_MASK: u32 = MAIN_INDEX_MAX << MAIN_INDEX_OFFSET;
+	pub const MAIN_INDEX_MAX: u32 = 0b0011_1111;
+	pub const SUB_INDEX_OFFSET: u32 = LAYER_DRAWING_PRIORITY_MASK.trailing_ones();
+	pub const SUB_INDEX_MASK: u32 = SUB_INDEX_MAX << SUB_INDEX_OFFSET;
+	pub const SUB_INDEX_MAX: u32 = 0b1111_1111;
+	pub const LAYER_DRAWING_PRIORITY_MASK: u32 = PROP1_MASK;
+	pub const ORIENTATION_MASK: u32 = PROP1_MASK;
+	const PROP1_MASK: u32 = 0b1111_1111;
 	pub const ONE_SHADOW_LAYER: usize = 1;
 	const MINIMUM_VERSION: i32 = 7;
 
@@ -86,6 +100,102 @@ pub mod ds1 {
 	}
 
 	impl RootStruct {
+		pub fn writeTo(&self, to: &mut impl Write) {
+			let &RootStruct {
+				version,
+				xMax,
+				yMax,
+				actIndex,
+				tagType,
+				ref files,
+				ref unknown,
+				numWallLayers,
+				numFloors,
+				ref layers,
+				ref objects,
+				ref groups,
+				ref paths,
+			} = self;
+			to.write_i32::<LE>(version).unwrap();
+			[xMax, yMax].iter().for_each(|&coordMax| to.write_i32::<LE>(coordMax).unwrap());
+			if version >= 8 {
+				to.write_i32::<LE>(actIndex).unwrap();
+				if version >= 10 {
+					to.write_i32::<LE>(tagType).unwrap();
+				}
+			}
+			to.write_i32::<LE>(files.len() as _).unwrap();
+			for file in files {
+				to.write_all(file.as_bytes()).unwrap();
+				to.write_u8(b'\0').unwrap();
+			}
+			if matches!(version, 9..=13) {
+				to.write_all(&unknown.unwrap()).unwrap();
+			}
+			to.write_i32::<LE>(numWallLayers).unwrap();
+			if version >= 16 {
+				to.write_i32::<LE>(numFloors).unwrap();
+			}
+			for layer in layers {
+				if cfg!(target_endian = "little") {
+					to.write_all(unsafe {
+						slice::from_raw_parts(layer.as_ptr() as _, size_of_val(layer.as_slice()))
+					})
+					.unwrap();
+				} else {
+					for &cell in layer {
+						_ = to.write_u32::<LE>(cell);
+					}
+				}
+			}
+			let (objects, groups, paths) = (objects.toVec(), groups.toVec(), paths.toVec());
+			to.write_i32::<LE>(objects.len() as _).unwrap();
+			for &Object { r#type, id, x, y, flags } in objects {
+				to.write_i32::<LE>(r#type).unwrap();
+				to.write_i32::<LE>(id).unwrap();
+				[x, y].iter().for_each(|&coord| to.write_i32::<LE>(coord).unwrap());
+				to.write_i32::<LE>(flags).unwrap();
+			}
+			if version >= 12 {
+				if existsTagLayer(tagType) {
+					if version >= 18 {
+						to.write_i32::<LE>(0).unwrap();
+					}
+					to.write_i32::<LE>(groups.len() as _).unwrap();
+					for &Group { x, y, width, height, unknown } in groups {
+						[x, y].iter().for_each(|&coord| to.write_i32::<LE>(coord).unwrap());
+						[width, height].iter().for_each(|&dimension| to.write_i32::<LE>(dimension).unwrap());
+						if version >= 13 {
+							to.write_i32::<LE>(unknown).unwrap();
+						}
+					}
+				}
+				if version >= 14 {
+					to.write_i32::<LE>(paths.len() as _).unwrap();
+					for &Path { x, y, ref nodes } in paths {
+						to.write_i32::<LE>(nodes.len() as _).unwrap();
+						[x, y].iter().for_each(|&coord| to.write_i32::<LE>(coord).unwrap());
+						for &Node { x, y, action } in nodes {
+							[x, y].iter().for_each(|&coord| to.write_i32::<LE>(coord).unwrap());
+							if version >= 15 {
+								to.write_i32::<LE>(action).unwrap()
+							}
+						}
+					}
+				}
+			}
+
+			trait OptionVecExt<T: 'static> {
+				fn toVec(&self) -> &Vec<T>;
+				const EMPTY_VEC: &'static Vec<T> = &Vec::new();
+			}
+			impl<T: 'static> OptionVecExt<T> for Option<Vec<T>> {
+				fn toVec(&self) -> &Vec<T> {
+					self.as_ref().unwrap_or(Self::EMPTY_VEC)
+				}
+			}
+		}
+
 		pub fn new(cursor: &mut io::Cursor<impl AsRef<[u8]>>) -> Result<Self, VersionMismatchError> {
 			let version = cursor.read_i32::<LE>().unwrap();
 			if version < MINIMUM_VERSION {
@@ -202,11 +312,14 @@ pub const PAL_LEN: usize = 256 * 3;
 
 pub mod dt1 {
 	use {
-		super::{CopyExt, ReadExt, TileColumns, UsizeExt, Vec2, Vec2Ext, WriteExt, FULLY_TRANSPARENT, X, Y},
+		super::{
+			CopyExt, Image, ReadExt, TileColumns, TilesIterator, UsizeExt, Vec2, Vec2Ext, WriteExt,
+			FULLY_TRANSPARENT, X, Y,
+		},
 		byteorder::{ReadBytesExt, WriteBytesExt, LE},
 		core::{
 			cmp::{max, min},
-			fmt, mem, ops,
+			fmt, iter, mem, ops,
 		},
 		serde::{Deserialize, Serialize},
 		std::io::{self, BufRead, Write},
@@ -238,6 +351,9 @@ pub mod dt1 {
 
 	pub const NUM_SUBTILES_PER_LINE: usize = 5;
 	const NUM_SUBTILES: usize = NUM_SUBTILES_PER_LINE.pow(2);
+	const FILEHEADER_SIZE: i32 = 276;
+	const TILEHEADER_SIZE: i32 = 96;
+	const BLOCKHEADER_SIZE: i32 = 20;
 
 	#[derive(Serialize, Deserialize)]
 	pub struct Tile {
@@ -353,6 +469,16 @@ pub mod dt1 {
 							cursor.read_i32::<LE>().unwrap()
 						},
 					});
+					#[allow(non_camel_case_types)]
+					trait Copy_AddAssign_Ext {
+						fn alsoAddTo(self, to: &mut Self) -> Self;
+					}
+					impl<T: Copy + CopyExt + ops::AddAssign> Copy_AddAssign_Ext for T {
+						#[inline(always)]
+						fn alsoAddTo(self, to: &mut Self) -> Self {
+							self.also(|&Δ| *to += Δ)
+						}
+					}
 				}
 				assert_eq!(blocks.len(), blocks.capacity());
 				cursor.consume(totalLength as _);
@@ -361,85 +487,99 @@ pub mod dt1 {
 			Ok(Self { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
 		}
 
-		pub fn writeWithBlockDataFromDT1(&self, dt1: &[u8], to: &mut impl Write) {
+		pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut impl Write) {
 			let Self { fileHeader, tiles } = self;
-			for i in fileHeader.version {
-				to.write_i32::<LE>(i).unwrap();
-			}
+			fileHeader.version.iter().for_each(|&versionElem| to.write_i32::<LE>(versionElem).unwrap());
 			to.writeZeros(260);
 			to.write_i32::<LE>(tiles.len() as _).unwrap();
 			to.write_i32::<LE>(fileHeader.tileHeadersPointer).unwrap();
-			for &Tile {
-				direction,
-				roofHeight,
-				ref materialFlags,
-				height,
-				width,
-				orientation,
-				mainIndex,
-				subIndex,
-				rarityOrFrameIndex,
-				ref unknown,
-				ref subtileFlags,
-				blockHeadersPointer,
-				blockDataLength,
-				ref usuallyZeros,
-				ref blocks,
-			} in tiles
 			{
-				to.write_i32::<LE>(direction).unwrap();
-				to.write_i16::<LE>(roofHeight).unwrap();
-				to.write_all(materialFlags).unwrap();
-				to.write_i32::<LE>(height).unwrap();
-				to.write_i32::<LE>(width).unwrap();
-				to.writeZeros(4);
-				to.write_i32::<LE>(orientation).unwrap();
-				to.write_i32::<LE>(mainIndex).unwrap();
-				to.write_i32::<LE>(subIndex).unwrap();
-				to.write_i32::<LE>(rarityOrFrameIndex).unwrap();
-				to.write_all(unknown).unwrap();
-				to.write_all(subtileFlags).unwrap();
-				to.writeZeros(7);
-				to.write_i32::<LE>(blockHeadersPointer).unwrap();
-				to.write_i32::<LE>(blockDataLength).unwrap();
-				to.write_i32::<LE>(blocks.len() as _).unwrap();
-				to.writeZeros(4);
-				to.write_all(usuallyZeros).unwrap();
-				to.writeZeros(4);
+				let mut blockHeadersPointer = FILEHEADER_SIZE + tiles.len() as i32 * TILEHEADER_SIZE;
+				for &Tile {
+					direction,
+					roofHeight,
+					ref materialFlags,
+					height,
+					width,
+					orientation,
+					mainIndex,
+					subIndex,
+					rarityOrFrameIndex,
+					ref unknown,
+					ref subtileFlags,
+					blockHeadersPointer: _,
+					blockDataLength,
+					ref usuallyZeros,
+					ref blocks,
+				} in tiles
+				{
+					to.write_i32::<LE>(direction).unwrap();
+					to.write_i16::<LE>(roofHeight).unwrap();
+					to.write_all(materialFlags).unwrap();
+					to.write_i32::<LE>(height).unwrap();
+					to.write_i32::<LE>(width).unwrap();
+					to.writeZeros(4);
+					to.write_i32::<LE>(orientation).unwrap();
+					to.write_i32::<LE>(mainIndex).unwrap();
+					to.write_i32::<LE>(subIndex).unwrap();
+					to.write_i32::<LE>(rarityOrFrameIndex).unwrap();
+					to.write_all(unknown).unwrap();
+					to.write_all(subtileFlags).unwrap();
+					to.writeZeros(7);
+					to.write_i32::<LE>(blockHeadersPointer).unwrap();
+					to.write_i32::<LE>(blockDataLength).unwrap();
+					to.write_i32::<LE>(blocks.len() as _).unwrap();
+					to.writeZeros(4);
+					to.write_all(usuallyZeros).unwrap();
+					to.writeZeros(4);
+					blockHeadersPointer += blockDataLength;
+				}
 			}
+			let points = &mut TilesIterator::<{ TILEWIDTH }>::new(tileImage);
 			for tile in tiles {
-				let (mut totalLength, blocks) = (0, &tile.blocks);
-				for &Block { x, y, gridX, gridY, ref format, length, fileOffset } in blocks {
+				let ([mut startY, mut endY, blockHeight], mut fileOffset, blocks) = (
+					[i16::MAX, i16::MIN, tile.blockHeight() as _],
+					tile.blocks.len() as i32 * BLOCKHEADER_SIZE,
+					&tile.blocks,
+				);
+				for &Block { x, y, gridX, gridY, ref format, length, fileOffset: _ } in blocks {
 					to.write_i16::<LE>(x).unwrap();
 					to.write_i16::<LE>(y).unwrap();
 					to.writeZeros(2);
 					to.write_u8(gridX).unwrap();
 					to.write_u8(gridY).unwrap();
 					to.write_all(format).unwrap();
-					to.write_i32::<LE>(length.alsoAddTo(&mut totalLength)).unwrap();
+					to.write_i32::<LE>(length).unwrap();
 					to.writeZeros(2);
 					to.write_i32::<LE>(fileOffset).unwrap();
+					startY = min(startY, y);
+					endY = max(endY, y + blockHeight);
+					fileOffset += length;
 				}
-				if totalLength > 0 {
-					to.write_all(&dt1[(tile.blockHeadersPointer + blocks[0].fileOffset) as _..][..totalLength as _])
-						.unwrap();
+				let point = points
+					.next(((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT))
+					.add([0, 0_usize.wrapping_sub(startY as _)]);
+				for &Block { x, y, .. } in blocks {
+					to.writeBlockIsometric(point.add([x as _, y as _]), tileImage);
+				}
+			}
+			trait WriteBlockExt {
+				fn writeBlockIsometric(&mut self, point: Vec2, tileImage: &Image);
+			}
+			impl<T: Write> WriteBlockExt for T {
+				fn writeBlockIsometric(&mut self, point: Vec2, tileImage: &Image) {
+					let mut i = point[Y] * tileImage.width + point[X];
+					for (xjump, nbpix) in iter::zip(XJUMP, NBPIX) {
+						_ = self.write_all(&tileImage.data[i + xjump..][..nbpix]);
+						i += tileImage.width;
+					}
 				}
 			}
 		}
-
-		// pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut impl Write) {}
 	}
 
-	#[allow(non_camel_case_types)]
-	trait Copy_AddAssign_Ext {
-		fn alsoAddTo(self, to: &mut Self) -> Self;
-	}
-	impl<T: Copy + super::CopyExt + ops::AddAssign> Copy_AddAssign_Ext for T {
-		#[inline(always)]
-		fn alsoAddTo(self, to: &mut Self) -> Self {
-			self.also(|&Δ| *to += Δ)
-		}
-	}
+	const XJUMP: [usize; 15] = [14, 12, 10, 8, 6, 4, 2, 0, 2, 4, 6, 8, 10, 12, 14];
+	const NBPIX: [usize; 15] = [4, 8, 12, 16, 20, 24, 28, 32, 28, 24, 20, 16, 12, 8, 4];
 
 	type DrawFn<ImplDrawDestination> = fn(&mut ImplDrawDestination, x0: usize, y0: usize, data: &[u8]);
 
@@ -465,9 +605,7 @@ pub mod dt1 {
 			let [mut Δy, width] = [0, self.width()];
 			let [mut i, mut yMulWidthAddX0] = [0, y0 * width + x0];
 			while length > 0 {
-				static XJUMP: [u8; 15] = [14, 12, 10, 8, 6, 4, 2, 0, 2, 4, 6, 8, 10, 12, 14];
-				static NBPIX: [u8; 15] = [4, 8, 12, 16, 20, 24, 28, 32, 28, 24, 20, 16, 12, 8, 4];
-				let [mut j, mut n] = [yMulWidthAddX0 + XJUMP[Δy] as usize, NBPIX[Δy] as usize];
+				let [mut j, mut n] = [yMulWidthAddX0 + XJUMP[Δy], NBPIX[Δy]];
 				length -= n;
 				while n != 0 {
 					self.putpixel(j, data[i]);
@@ -646,6 +784,7 @@ pub mod dt1 {
 
 use {
 	dt1::BLOCKWIDTH,
+	serde::ser,
 	std::{
 		fs::File,
 		io::{self, Read, Write},
@@ -924,6 +1063,13 @@ impl<T: Copy> CopyExt for T {
 pub fn io_readToString(mut reader: impl Read) -> io::Result<String> {
 	let mut string = String::new();
 	reader.read_to_string(&mut string)?;
+	Ok(string)
+}
+
+#[inline(always)]
+pub fn toml_toStringPretty<T: ?Sized + ser::Serialize>(value: &T) -> Result<String, toml::ser::Error> {
+	let mut string = String::with_capacity(128);
+	value.serialize((&mut toml::ser::Serializer::pretty(&mut string)).pretty_array(false))?;
 	Ok(string)
 }
 

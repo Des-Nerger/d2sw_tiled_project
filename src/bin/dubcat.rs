@@ -10,8 +10,8 @@ use {
 };
 
 fn main() {
-	let (stdin, stdout) = (io::stdin(), &mut io::BufWriter::new(stdoutRaw()));
-	let (stdin, filepathLine) = (&mut stdin.lock(), &mut String::new());
+	let (stdin, stdout, filepathLine) =
+		&mut (io::stdin().lock(), io::BufWriter::new(stdoutRaw()), String::new());
 	while {
 		filepathLine.clear();
 		stdin.read_line(filepathLine).unwrap() != 0
