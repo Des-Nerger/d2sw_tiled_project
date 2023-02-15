@@ -103,24 +103,15 @@ $ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TO
 		                    >"$d/$b".rhombPackedRoguelikeTile.png
            done; if [[ -f /dev/shm/tile.png ]]; then rm -v /dev/shm/tile.png; fi
 
-$ cargo build --release --offline --bin dt1_into_dt1 \
-    && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]1 -iname "*.dt1" -print0 \
-         | while read -d $'\0' f; do
-             [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
-             p="${BASH_REMATCH[1]}/${BASH_REMATCH[2]} "
-             echo -n "$p" 1>&2
-             target/release/dt1_into_dt1 <"$f" >/dev/shm/tmp.dt1 && cmp "$f" /dev/shm/tmp.dt1 && echo OK
-           done; if [[ -f /dev/shm/tmp.dt1 ]]; then rm -v /dev/shm/tmp.dt1; fi
-
 $ p=(/tmp/d2_act1/?rypt/?loor.tile.png); p=${p[@]%.tile.png}; \
     cargo run --release --offline --bin dubcat <<< $p.dt1.toml \
       | cat - $p.tile.png \
       | cargo run --release --offline --bin 4_-_dt1TOML-tilePNG_into_dt1 \
           >$p.dt1
 
-$ cargo build --release --offline --bin 1_-_ds1_into_ds1TOML \
-                                  --bin 2_-_ds1TOML_into_ds1SetFloorTOML --bin 2_-_ds1TOML_into_ds1 \
-    && j=0 && ls "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]1/[Cc]rypt/*.[Dd][Ss]1 \
+$ cargo build --release --offline --bin 1_-_ds1_into_ds1TOML --bin 2_-_ds1TOML_into_ds1SettenFloorTOML \
+                                  --bin 2_-_ds1TOML_into_ds1RuledFloorTOML --bin 2_-_ds1TOML_into_ds1 \
+    && j=10 && ls "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]1/[Cc]rypt/*.[Dd][Ss]1 \
          | while read f; do
              [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
              d="/tmp/d2_act1/${BASH_REMATCH[1]}"
@@ -129,8 +120,21 @@ $ cargo build --release --offline --bin 1_-_ds1_into_ds1TOML \
              p="${BASH_REMATCH[1]}/$b "
              echo -n "$p" 1>&2
              target/release/1_-_ds1_into_ds1TOML <"$f" \
-               | target/release/2_-_ds1TOML_into_ds1SetFloorTOML 7 $j \
+               | target/release/2_-_ds1TOML_into_ds1SettenFloorTOML 7 $j \
+               | target/release/2_-_ds1TOML_into_ds1RuledFloorTOML 7 \
                | target/release/2_-_ds1TOML_into_ds1 >"$d/$b".ds1
              ((j++))
            done
+
+$ i=1; cargo build --release --offline --bin 1_-_ds1_into_ds1TOML \
+                                       --bin 2_-_ds1TOML_into_ds1 \
+    && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.ds1" -print0 \
+         | while read -d $'\0' f; do
+             [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
+             p="${BASH_REMATCH[1]}/${BASH_REMATCH[2]} "
+             echo -n "$p" 1>&2
+             { target/release/1_-_ds1_into_ds1TOML <"$f" && printf "%*s" ${#p} "" 1>&2 ; } \
+               | target/release/2_-_ds1TOML_into_ds1 >/dev/shm/tmp.ds1 \
+                 && cmp "$f" /dev/shm/tmp.ds1 && echo OK 1>&2
+           done; if [[ -f /dev/shm/tmp.ds1 ]]; then rm -v /dev/shm/tmp.ds1; fi
 ```

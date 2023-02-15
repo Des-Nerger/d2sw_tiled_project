@@ -3,7 +3,7 @@
 
 pub mod ds1 {
 	use {
-		super::{ReadExt, VecExt},
+		super::{ReadExt, VecExt, WriteExt},
 		byteorder::{ReadBytesExt, WriteBytesExt, LE},
 		core::{
 			array, fmt,
@@ -12,7 +12,7 @@ pub mod ds1 {
 		},
 		memchr::memchr,
 		serde::{Deserialize, Serialize},
-		std::io::{self, BufRead, Write},
+		std::io::{self, BufRead, Seek, SeekFrom, Write},
 	};
 
 	#[derive(Serialize, Deserialize)]
@@ -148,7 +148,7 @@ pub mod ds1 {
 					}
 				}
 			}
-			let (objects, groups, paths) = (objects.toVec(), groups.toVec(), paths.toVec());
+			let (objects, groups, paths) = (objects.asVec(), groups.asVec(), paths.asVec());
 			to.write_i32::<LE>(objects.len() as _).unwrap();
 			for &Object { r#type, id, x, y, flags } in objects {
 				to.write_i32::<LE>(r#type).unwrap();
@@ -159,7 +159,7 @@ pub mod ds1 {
 			if version >= 12 {
 				if existsTagLayer(tagType) {
 					if version >= 18 {
-						to.write_i32::<LE>(0).unwrap();
+						to.writeZeros(size_of::<i32>());
 					}
 					to.write_i32::<LE>(groups.len() as _).unwrap();
 					for &Group { x, y, width, height, unknown } in groups {
@@ -186,11 +186,11 @@ pub mod ds1 {
 			}
 
 			trait OptionVecExt<T: 'static> {
-				fn toVec(&self) -> &Vec<T>;
+				fn asVec(&self) -> &Vec<T>;
 				const EMPTY_VEC: &'static Vec<T> = &Vec::new();
 			}
 			impl<T: 'static> OptionVecExt<T> for Option<Vec<T>> {
-				fn toVec(&self) -> &Vec<T> {
+				fn asVec(&self) -> &Vec<T> {
 					self.as_ref().unwrap_or(Self::EMPTY_VEC)
 				}
 			}
@@ -245,6 +245,7 @@ pub mod ds1 {
 				groups.push(Group {
 					y: if cursor.remaining() == 0 {
 						assert_eq!(x, 0);
+						cursor.seek(SeekFrom::Current(-(size_of_val(&x) as i64))).unwrap();
 						break;
 					} else {
 						cursor.read_i32::<LE>().unwrap()
@@ -987,12 +988,12 @@ impl<T: AsRef<[u8]>> ReadExt for io::Cursor<T> {
 }
 
 trait WriteExt {
-	fn writeZeros(&mut self, zerosCount: u64);
+	fn writeZeros(&mut self, zerosCount: usize);
 }
 impl<T: Write> WriteExt for T {
 	#[inline(always)]
-	fn writeZeros(&mut self, zerosCount: u64) {
-		io::copy(&mut io::repeat(0).take(zerosCount), self).unwrap();
+	fn writeZeros(&mut self, zerosCount: usize) {
+		io::copy(&mut io::repeat(0).take(zerosCount as _), self).unwrap();
 	}
 }
 

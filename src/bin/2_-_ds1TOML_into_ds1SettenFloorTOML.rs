@@ -14,16 +14,16 @@ use {
 };
 
 fn main() {
-	#[derive(Parser)]
-	struct Args {
-		#[clap(value_parser = value_parser!(u32).range(0..=(MAIN_INDEX_MAX as _)))]
-		mainIndex: u32,
-
-		#[clap(value_parser = value_parser!(u32).range(0..=(SUB_INDEX_MAX as _)))]
-		subIndex: u32,
-	}
-	let (setID, ds1RootStruct) = (
+	let (settenID, ds1RootStruct) = (
 		{
+			#[derive(Parser)]
+			struct Args {
+				#[clap(value_parser = value_parser!(u32).range(0..=(MAIN_INDEX_MAX as _)))]
+				mainIndex: u32,
+
+				#[clap(value_parser = value_parser!(u32).range(0..=(SUB_INDEX_MAX as _)))]
+				subIndex: u32,
+			}
 			let Args { mainIndex, subIndex } = Args::parse();
 			mainIndex << MAIN_INDEX_OFFSET | subIndex << SUB_INDEX_OFFSET
 		},
@@ -40,7 +40,7 @@ fn main() {
 				if cell & LAYER_DRAWING_PRIORITY_MASK == 0 {
 					continue;
 				}
-				cell & !(MAIN_INDEX_MASK | SUB_INDEX_MASK) | setID
+				cell & !(MAIN_INDEX_MASK | SUB_INDEX_MASK) | settenID
 			};
 		}
 	}
