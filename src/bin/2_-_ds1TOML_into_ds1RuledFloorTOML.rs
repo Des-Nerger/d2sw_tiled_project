@@ -32,14 +32,14 @@ fn main() {
 	);
 	let &mut ds1::RootStruct { xMax, yMax, numWallLayers, ref mut layers, .. } = ds1RootStruct;
 	{
-		let (mut i, layer, [columns, rows]) = (
+		let (mut i, floorLayer, [columns, rows]) = (
 			0,
 			&mut layers[(numWallLayers * 2) as usize],
 			&mut array::from_fn(|i| vec![[i32::MAX, i32::MIN]; ([xMax, yMax][i] + 1) as _]),
 		);
 		for y in 0..=yMax {
 			for x in 0..=xMax {
-				if layer[i] & LAYER_DRAWING_PRIORITY_MASK != 0 && ![[0, 0], [xMax, yMax]].contains(&[x, y]) {
+				if floorLayer[i] & LAYER_DRAWING_PRIORITY_MASK != 0 && ![[0, 0], [xMax, yMax]].contains(&[x, y]) {
 					const FLOOR_START: usize = 0;
 					const FLOOR_END: usize = 1;
 					{
@@ -63,7 +63,7 @@ fn main() {
 		i = 0;
 		for y in 0..=yMax {
 			for x in 0..=xMax {
-				let cell = &mut layer[i];
+				let cell = &mut floorLayer[i];
 				*cell = {
 					let &mut cell = cell;
 					let settenCell = |subIndex| {

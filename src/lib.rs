@@ -323,7 +323,7 @@ pub mod dt1 {
 			fmt, iter, mem, ops,
 		},
 		serde::{Deserialize, Serialize},
-		std::io::{self, BufRead, Write},
+		std::io::{self, BufRead, Seek, Write},
 	};
 
 	#[derive(Serialize, Deserialize)]
@@ -355,6 +355,9 @@ pub mod dt1 {
 	const FILEHEADER_SIZE: i32 = 276;
 	const TILEHEADER_SIZE: i32 = 96;
 	const BLOCKHEADER_SIZE: i32 = 20;
+	const ISOMETRIC: [u8; 2] = [1, 0];
+	const RLE_ISOMETRIC: [u8; 2] = [5, 32];
+	const RLE: [u8; 2] = [1, 16];
 
 	#[derive(Serialize, Deserialize)]
 	pub struct Tile {
@@ -391,10 +394,10 @@ pub mod dt1 {
 	impl Block {
 		#[inline(always)]
 		pub fn drawFn<T: DrawDestination>(&self) -> DrawFn<T> {
-			if self.format == [1, 0] {
+			if self.format == ISOMETRIC {
 				DrawDestination::drawBlockIsometric
 			} else {
-				DrawDestination::drawBlockNormal
+				DrawDestination::drawBlockRLE
 			}
 		}
 	}
@@ -488,7 +491,7 @@ pub mod dt1 {
 			Ok(Self { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
 		}
 
-		pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut impl Write) {
+		pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut (impl Write + Seek)) {
 			let Self { fileHeader, tiles } = self;
 			fileHeader.version.iter().for_each(|&versionElem| to.write_i32::<LE>(versionElem).unwrap());
 			to.writeZeros(260);
@@ -550,7 +553,7 @@ pub mod dt1 {
 					to.write_u8(gridX).unwrap();
 					to.write_u8(gridY).unwrap();
 					to.write_all(format).unwrap();
-					to.write_i32::<LE>(length).unwrap();
+					to.write_i32::<LE>(length).unwrap(); // TODO: recalculate for RLE blocks
 					to.writeZeros(2);
 					to.write_i32::<LE>(fileOffset).unwrap();
 					startY = min(startY, y);
@@ -560,19 +563,77 @@ pub mod dt1 {
 				let point = points
 					.next(((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT))
 					.add([0, 0_usize.wrapping_sub(startY as _)]);
-				for &Block { x, y, .. } in blocks {
-					to.writeBlockIsometric(point.add([x as _, y as _]), tileImage);
+				for &Block { x, y, format, length, .. } in blocks {
+					let point = point.add([x as _, y as _]);
+					if format == ISOMETRIC {
+						to.writeBlockIsometric(point, tileImage);
+					} else {
+						let streamPosition = if cfg!(debug_assertions) { to.stream_position().unwrap() } else { 0 };
+						to.writeBlockRLE(
+							point,
+							match format {
+								RLE => MAX_BLOCKHEIGHT,
+								RLE_ISOMETRIC => NBPIX.len(),
+								_ => unreachable!(),
+							},
+							tileImage,
+						);
+						if cfg!(debug_assertions) {
+							assert_eq!(to.stream_position().unwrap() - streamPosition, length as _);
+						}
+					}
 				}
 			}
 			trait WriteBlockExt {
 				fn writeBlockIsometric(&mut self, point: Vec2, tileImage: &Image);
+				fn writeBlockRLE(&mut self, point: Vec2, blockHeight: usize, tileImage: &Image);
 			}
 			impl<T: Write> WriteBlockExt for T {
+				#[inline(always)]
 				fn writeBlockIsometric(&mut self, point: Vec2, tileImage: &Image) {
 					let mut i = point[Y] * tileImage.width + point[X];
 					for (xjump, nbpix) in iter::zip(XJUMP, NBPIX) {
 						_ = self.write_all(&tileImage.data[i + xjump..][..nbpix]);
 						i += tileImage.width;
+					}
+				}
+				#[inline(always)]
+				fn writeBlockRLE(&mut self, point: Vec2, blockHeight: usize, tileImage: &Image) {
+					let (mut i, imageData) = ((point[Y] - 1) * tileImage.width + point[X], &tileImage.data);
+					for Δy in 0..blockHeight {
+						let ([mut xjump, nbpix], mut xsolid) = (
+							if blockHeight == MAX_BLOCKHEIGHT {
+								[0, BLOCKWIDTH as u8]
+							} else {
+								[XJUMP[Δy] as _, NBPIX[Δy] as _]
+							},
+							0,
+						);
+						i += tileImage.width;
+						let mut i = i + xjump as usize;
+						for Δx in 1..=nbpix {
+							let [mut nextXJump, mut nextXSolid] = [xjump, xsolid];
+							if imageData[i] == FULLY_TRANSPARENT {
+								nextXJump = xjump + 1;
+							} else {
+								nextXSolid = xsolid + 1;
+							};
+							if xsolid != 0 && nextXJump != xjump && {
+								xsolid = nextXSolid;
+								true
+							} || Δx == nbpix && nextXSolid != 0 && {
+								[xjump, xsolid] = [nextXJump, nextXSolid - 1];
+								true
+							} {
+								_ = self.write_all(&[xjump, nextXSolid]);
+								_ = self.write_all(&imageData[i - xsolid as usize..][..nextXSolid as _]);
+								nextXJump -= xjump;
+								nextXSolid = 0;
+							}
+							[xjump, xsolid] = [nextXJump, nextXSolid];
+							i += 1;
+						}
+						self.writeZeros(2);
 					}
 				}
 			}
@@ -625,7 +686,7 @@ pub mod dt1 {
 			1st byte is pixels to "jump", 2nd is number of "solid" pixels, followed by the pixel color indexes.
 			when 1st and 2nd bytes are 0 and 0, next line.
 		*/
-		fn drawBlockNormal(&mut self, x0: usize, y0: usize, data: &[u8]) {
+		fn drawBlockRLE(&mut self, x0: usize, y0: usize, data: &[u8]) {
 			let [mut length, width] = [data.len(), self.width()];
 
 			// draw
@@ -654,7 +715,7 @@ pub mod dt1 {
 	pub const TILEWIDTH: usize = 160;
 	pub const FLOOR_ROOF_TILEHEIGHT: usize = 79 + 1;
 	pub const BLOCKWIDTH: usize = 32;
-	pub const FLOOR_ROOF_BLOCKHEIGHT: usize = 15 + 1;
+	pub const FLOOR_ROOF_BLOCKHEIGHT: usize = NBPIX.len() + 1;
 	pub const MAX_BLOCKHEIGHT: usize = 32;
 
 	pub const SQUARE_TILE_SIZE: usize = TILEWIDTH / 2;

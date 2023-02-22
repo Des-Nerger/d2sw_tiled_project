@@ -30,11 +30,11 @@ fn main() {
 		&mut toml::from_str(&io_readToString(io::stdin()).unwrap()).unwrap(),
 	);
 	let &mut ds1::RootStruct { tagType, numWallLayers, ref mut layers, .. } = ds1RootStruct;
-	for layer in {
+	for floorLayer in {
 		let len = layers.len();
 		&mut layers[((numWallLayers * 2) as _)..(len - ONE_SHADOW_LAYER - existsTagLayer(tagType) as usize)]
 	} {
-		for cell in layer {
+		for cell in floorLayer {
 			*cell = {
 				let &mut cell = cell;
 				if cell & LAYER_DRAWING_PRIORITY_MASK == 0 {
