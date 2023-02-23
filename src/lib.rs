@@ -323,7 +323,10 @@ pub mod dt1 {
 			fmt, iter, mem, ops,
 		},
 		serde::{Deserialize, Serialize},
-		std::io::{self, BufRead, Seek, Write},
+		std::{
+			fs::File,
+			io::{self, BufRead, Cursor, Write},
+		},
 	};
 
 	#[derive(Serialize, Deserialize)]
@@ -373,7 +376,7 @@ pub mod dt1 {
 		pub unknown: [u8; 4],
 		pub subtileFlags: [u8; NUM_SUBTILES],
 		pub blockHeadersPointer: i32,
-		pub blockDataLength: i32,
+		pub blocksDataLength: i32,
 		pub usuallyZeros: [u8; 4],
 
 		#[serde(rename = "block")]
@@ -443,7 +446,7 @@ pub mod dt1 {
 						cursor.consumeZeros(7);
 						cursor.read_i32::<LE>().unwrap()
 					},
-					blockDataLength: cursor.read_i32::<LE>().unwrap(),
+					blocksDataLength: cursor.read_i32::<LE>().unwrap(),
 					blocks: Vec::with_capacity(cursor.read_i32::<LE>().unwrap() as _),
 					usuallyZeros: {
 						cursor.consumeZeros(4);
@@ -491,15 +494,19 @@ pub mod dt1 {
 			Ok(Self { fileHeader: FileHeader { version, tileHeadersPointer }, tiles })
 		}
 
-		pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut (impl Write + Seek)) {
-			let Self { fileHeader, tiles } = self;
-			fileHeader.version.iter().for_each(|&versionElem| to.write_i32::<LE>(versionElem).unwrap());
-			to.writeZeros(260);
-			to.write_i32::<LE>(tiles.len() as _).unwrap();
-			to.write_i32::<LE>(fileHeader.tileHeadersPointer).unwrap();
-			{
-				let mut blockHeadersPointer = FILEHEADER_SIZE + tiles.len() as i32 * TILEHEADER_SIZE;
-				for &Tile {
+		pub fn writeWithBlockDataFromTileImage(&self, tileImage: &Image, to: &mut File) {
+			let (Self { fileHeader, tiles }, cursor) =
+				(self, &mut Cursor::new(Vec::with_capacity(6 * 1024 * 1024)));
+			fileHeader.version.iter().for_each(|&versionElem| cursor.write_i32::<LE>(versionElem).unwrap());
+			cursor.writeZeros(260);
+			cursor.write_i32::<LE>(tiles.len() as _).unwrap();
+			cursor.write_i32::<LE>(fileHeader.tileHeadersPointer).unwrap();
+			let (points, mut blockHeadersPointer) = (
+				&mut TilesIterator::<{ TILEWIDTH }>::new(tileImage),
+				FILEHEADER_SIZE + tiles.len() as i32 * TILEHEADER_SIZE,
+			);
+			for tile in tiles {
+				let &Tile {
 					direction,
 					roofHeight,
 					ref materialFlags,
@@ -512,85 +519,89 @@ pub mod dt1 {
 					ref unknown,
 					ref subtileFlags,
 					blockHeadersPointer: _,
-					blockDataLength,
+					blocksDataLength: _,
 					ref usuallyZeros,
 					ref blocks,
-				} in tiles
-				{
-					to.write_i32::<LE>(direction).unwrap();
-					to.write_i16::<LE>(roofHeight).unwrap();
-					to.write_all(materialFlags).unwrap();
-					to.write_i32::<LE>(height).unwrap();
-					to.write_i32::<LE>(width).unwrap();
-					to.writeZeros(4);
-					to.write_i32::<LE>(orientation).unwrap();
-					to.write_i32::<LE>(mainIndex).unwrap();
-					to.write_i32::<LE>(subIndex).unwrap();
-					to.write_i32::<LE>(rarityOrFrameIndex).unwrap();
-					to.write_all(unknown).unwrap();
-					to.write_all(subtileFlags).unwrap();
-					to.writeZeros(7);
-					to.write_i32::<LE>(blockHeadersPointer).unwrap();
-					to.write_i32::<LE>(blockDataLength).unwrap();
-					to.write_i32::<LE>(blocks.len() as _).unwrap();
-					to.writeZeros(4);
-					to.write_all(usuallyZeros).unwrap();
-					to.writeZeros(4);
-					blockHeadersPointer += blockDataLength;
-				}
-			}
-			let points = &mut TilesIterator::<{ TILEWIDTH }>::new(tileImage);
-			for tile in tiles {
-				let ([mut startY, mut endY, blockHeight], mut fileOffset, blocks) = (
-					[i16::MAX, i16::MIN, tile.blockHeight() as _],
-					tile.blocks.len() as i32 * BLOCKHEADER_SIZE,
-					&tile.blocks,
-				);
-				for &Block { x, y, gridX, gridY, ref format, length, fileOffset: _ } in blocks {
-					to.write_i16::<LE>(x).unwrap();
-					to.write_i16::<LE>(y).unwrap();
-					to.writeZeros(2);
-					to.write_u8(gridX).unwrap();
-					to.write_u8(gridY).unwrap();
-					to.write_all(format).unwrap();
-					to.write_i32::<LE>(length).unwrap(); // TODO: recalculate for RLE blocks
-					to.writeZeros(2);
-					to.write_i32::<LE>(fileOffset).unwrap();
-					startY = min(startY, y);
-					endY = max(endY, y + blockHeight);
-					fileOffset += length;
-				}
-				let point = points
-					.next(((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT))
-					.add([0, 0_usize.wrapping_sub(startY as _)]);
-				for &Block { x, y, format, length, .. } in blocks {
-					let point = point.add([x as _, y as _]);
-					if format == ISOMETRIC {
-						to.writeBlockIsometric(point, tileImage);
-					} else {
-						let streamPosition = if cfg!(debug_assertions) { to.stream_position().unwrap() } else { 0 };
-						to.writeBlockRLE(
-							point,
-							match format {
-								RLE => MAX_BLOCKHEIGHT,
-								RLE_ISOMETRIC => NBPIX.len(),
-								_ => unreachable!(),
-							},
-							tileImage,
-						);
-						if cfg!(debug_assertions) {
-							assert_eq!(to.stream_position().unwrap() - streamPosition, length as _);
-						}
+				} = tile;
+				let blocksDataLength = {
+					let [mut startY, mut endY, blockHeight] = [i16::MAX, i16::MIN, tile.blockHeight() as _];
+					for &Block { y, .. } in blocks {
+						startY = min(startY, y);
+						endY = max(endY, y + blockHeight);
 					}
-				}
+					let (mut fileOffset, position, point) = (
+						blocks.len() as i32 * BLOCKHEADER_SIZE,
+						cursor.position(),
+						points
+							.next(((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT))
+							.add([0, 0_usize.wrapping_sub(startY as _)]),
+					);
+					cursor.set_position(blockHeadersPointer as _);
+					for &Block { x, y, gridX, gridY, format, length: _, fileOffset: _ } in blocks {
+						let (position, point) = (cursor.position(), point.add([x as _, y as _]));
+						cursor.set_position((blockHeadersPointer + fileOffset) as _);
+						let length = {
+							let position = cursor.position();
+							if format == ISOMETRIC {
+								cursor.writeBlockDataIsometric(point, tileImage);
+							} else {
+								cursor.writeBlockDataRLE(
+									point,
+									match format {
+										RLE => MAX_BLOCKHEIGHT,
+										RLE_ISOMETRIC => NBPIX.len(),
+										_ => unreachable!(),
+									},
+									tileImage,
+								);
+							}
+							(cursor.position() - position) as i32
+						};
+						cursor.set_position(position);
+						cursor.write_i16::<LE>(x).unwrap();
+						cursor.write_i16::<LE>(y).unwrap();
+						cursor.writeZeros(2);
+						cursor.write_u8(gridX).unwrap();
+						cursor.write_u8(gridY).unwrap();
+						cursor.write_all(&format).unwrap();
+						cursor.write_i32::<LE>(length).unwrap();
+						cursor.writeZeros(2);
+						cursor.write_i32::<LE>(fileOffset).unwrap();
+						fileOffset += length;
+					}
+					cursor.set_position(position);
+					fileOffset
+				};
+				cursor.write_i32::<LE>(direction).unwrap();
+				cursor.write_i16::<LE>(roofHeight).unwrap();
+				cursor.write_all(materialFlags).unwrap();
+				cursor.write_i32::<LE>(height).unwrap();
+				cursor.write_i32::<LE>(width).unwrap();
+				cursor.writeZeros(4);
+				cursor.write_i32::<LE>(orientation).unwrap();
+				cursor.write_i32::<LE>(mainIndex).unwrap();
+				cursor.write_i32::<LE>(subIndex).unwrap();
+				cursor.write_i32::<LE>(rarityOrFrameIndex).unwrap();
+				cursor.write_all(unknown).unwrap();
+				cursor.write_all(subtileFlags).unwrap();
+				cursor.writeZeros(7);
+				cursor.write_i32::<LE>(blockHeadersPointer).unwrap();
+				cursor.write_i32::<LE>(blocksDataLength).unwrap();
+				cursor.write_i32::<LE>(blocks.len() as _).unwrap();
+				cursor.writeZeros(4);
+				cursor.write_all(usuallyZeros).unwrap();
+				cursor.writeZeros(4);
+				blockHeadersPointer += blocksDataLength;
 			}
-			trait WriteBlockExt {
-				fn writeBlockIsometric(&mut self, point: Vec2, tileImage: &Image);
-				fn writeBlockRLE(&mut self, point: Vec2, blockHeight: usize, tileImage: &Image);
+			to.write_all(cursor.get_ref()).unwrap();
+
+			trait WriteBlockDataExt {
+				fn writeBlockDataIsometric(&mut self, point: Vec2, tileImage: &Image);
+				fn writeBlockDataRLE(&mut self, point: Vec2, blockHeight: usize, tileImage: &Image);
 			}
-			impl<T: Write> WriteBlockExt for T {
+			impl<T: Write> WriteBlockDataExt for T {
 				#[inline(always)]
-				fn writeBlockIsometric(&mut self, point: Vec2, tileImage: &Image) {
+				fn writeBlockDataIsometric(&mut self, point: Vec2, tileImage: &Image) {
 					let mut i = point[Y] * tileImage.width + point[X];
 					for (xjump, nbpix) in iter::zip(XJUMP, NBPIX) {
 						_ = self.write_all(&tileImage.data[i + xjump..][..nbpix]);
@@ -598,7 +609,7 @@ pub mod dt1 {
 					}
 				}
 				#[inline(always)]
-				fn writeBlockRLE(&mut self, point: Vec2, blockHeight: usize, tileImage: &Image) {
+				fn writeBlockDataRLE(&mut self, point: Vec2, blockHeight: usize, tileImage: &Image) {
 					let (mut i, imageData) = ((point[Y] - 1) * tileImage.width + point[X], &tileImage.data);
 					for Δy in 0..blockHeight {
 						let ([mut xjump, nbpix], mut xsolid) = (

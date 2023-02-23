@@ -6,7 +6,7 @@ use {
 	d2sw_tiled_project::{dt1, io_readToString, stdoutRaw, Image},
 	memchr::memchr,
 	std::{
-		io::{self, BufRead, BufWriter, Read},
+		io::{self, BufRead, Read},
 		process::ExitCode,
 	},
 };
@@ -32,7 +32,7 @@ fn main() -> ExitCode {
 	}
 	.writeWithBlockDataFromTileImage(
 		&Image::fromPNG(&mut png::Decoder::new(stdin).read_info().unwrap()),
-		&mut BufWriter::new(stdoutRaw()),
+		&mut stdoutRaw(),
 	);
 	ExitCode::SUCCESS
 }
