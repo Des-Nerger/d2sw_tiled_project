@@ -50,7 +50,7 @@ fn main() -> ExitCode {
 	let (srcImage, pngPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
 	let mut maxTileHeight = 0;
 	{
-		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImage);
+		let srcPoints = &mut TilesIterator::new(BLOCKWIDTH, srcImage);
 		dt1Metadata.tiles.retain_mut(|tile| {
 			if tile.blocks.len() == 0 {
 				return false;
@@ -125,8 +125,8 @@ fn main() -> ExitCode {
 		Image::fromWidthHeight(width, height)
 	};
 	{
-		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImage);
-		let srcPoints = &mut TilesIterator::<{ BLOCKWIDTH }>::new(srcImage);
+		let destPoints = &mut TilesIterator::new(TILEWIDTH, destImage);
+		let srcPoints = &mut TilesIterator::new(BLOCKWIDTH, srcImage);
 		for tile in &dt1Metadata.tiles {
 			let (destPoint, blockHeight) = (destPoints.next(tile.height as _), tile.blockHeight());
 			for block in &tile.blocks {

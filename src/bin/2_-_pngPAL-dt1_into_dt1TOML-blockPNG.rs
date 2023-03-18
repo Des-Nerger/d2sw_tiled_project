@@ -2,7 +2,7 @@
 #![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
-	d2sw_tiled_project::{dt1, stdoutRaw, Image, PAL_LEN},
+	d2sw_tiled_project::{dt1, stdoutRaw, unlet, Image, PAL_LEN},
 	png::ColorType,
 	std::io::{self, BufWriter, Read, Write},
 };
@@ -11,8 +11,7 @@ fn main() -> Result<(), dt1::VersionMismatchError> {
 	let buffer = &mut Vec::<u8>::new();
 	io::stdin().read_to_end(buffer).unwrap();
 	let (pngPAL, dt1) = buffer.as_slice().split_at(PAL_LEN);
-	#[allow(unused_variables)]
-	let buffer = ();
+	unlet!(buffer);
 
 	let dt1Metadata = &dt1::Metadata::new(dt1)?;
 	let image = Image::fromDT1(&dt1Metadata.tiles, dt1);

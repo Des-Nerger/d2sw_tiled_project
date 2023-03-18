@@ -502,7 +502,7 @@ pub mod dt1 {
 			cursor.write_i32::<LE>(tiles.len() as _).unwrap();
 			cursor.write_i32::<LE>(fileHeader.tileHeadersPointer).unwrap();
 			let (points, mut blockHeadersPointer) = (
-				&mut TilesIterator::<{ TILEWIDTH }>::new(tileImage),
+				&mut TilesIterator::new(TILEWIDTH, tileImage),
 				FILEHEADER_SIZE + tiles.len() as i32 * TILEHEADER_SIZE,
 			);
 			for tile in tiles {
@@ -603,7 +603,7 @@ pub mod dt1 {
 				#[inline(always)]
 				fn writeBlockDataIsometric(&mut self, point: Vec2, tileImage: &Image) {
 					let mut i = point[Y] * tileImage.width + point[X];
-					for (xjump, nbpix) in iter::zip(XJUMP, NBPIX) {
+					for (&xjump, &nbpix) in iter::zip(XJUMP, NBPIX) {
 						_ = self.write_all(&tileImage.data[i + xjump..][..nbpix]);
 						i += tileImage.width;
 					}
@@ -651,8 +651,8 @@ pub mod dt1 {
 		}
 	}
 
-	const XJUMP: [usize; 15] = [14, 12, 10, 8, 6, 4, 2, 0, 2, 4, 6, 8, 10, 12, 14];
-	const NBPIX: [usize; 15] = [4, 8, 12, 16, 20, 24, 28, 32, 28, 24, 20, 16, 12, 8, 4];
+	pub const XJUMP: &[usize] = &[14, 12, 10, 8, 6, 4, 2, 0, 2, 4, 6, 8, 10, 12, 14];
+	pub const NBPIX: &[usize] = &[4, 8, 12, 16, 20, 24, 28, 32, 28, 24, 20, 16, 12, 8, 4];
 
 	type DrawFn<ImplDrawDestination> = fn(&mut ImplDrawDestination, x0: usize, y0: usize, data: &[u8]);
 
@@ -1006,19 +1006,29 @@ impl TileColumns {
 	}
 }
 
-pub struct TilesIterator<const TILEWIDTH: usize>(pub TileColumns);
-impl<const TILEWIDTH: usize> TilesIterator<TILEWIDTH> {
+pub struct TilesIterator {
+	tilewidth: usize,
+	pub tileColumns: TileColumns,
+}
+impl TilesIterator {
 	#[inline(always)]
-	pub fn new(image: &Image) -> Self {
-		Self(TileColumns { fullColumnHeight: image.height, numOverflownColumns: 0, lastColumnHeight: 0 })
+	pub fn new(tilewidth: usize, image: &Image) -> Self {
+		Self {
+			tilewidth,
+			tileColumns: TileColumns {
+				fullColumnHeight: image.height,
+				numOverflownColumns: 0,
+				lastColumnHeight: 0,
+			},
+		}
 	}
 	#[inline(always)]
 	pub fn next(&mut self, tileHeight: usize) -> [usize; 2] {
-		let tileColumns = self.0.clone();
-		if self.0.pushTile(tileHeight) != 0 {
-			[self.0.numOverflownColumns * TILEWIDTH, 0]
+		let tileColumns = self.tileColumns.clone();
+		if self.tileColumns.pushTile(tileHeight) != 0 {
+			[self.tileColumns.numOverflownColumns * self.tilewidth, 0]
 		} else {
-			[tileColumns.numOverflownColumns * TILEWIDTH, tileColumns.lastColumnHeight]
+			[tileColumns.numOverflownColumns * self.tilewidth, tileColumns.lastColumnHeight]
 		}
 	}
 }
@@ -1099,6 +1109,14 @@ macro_rules! stringifyId {
 		_ = $id;
 		stringify!($id)
 	}};
+}
+
+#[macro_export]
+macro_rules! unlet {
+	($id: ident) => {
+		#[allow(unused_variables)]
+		let $id = ();
+	};
 }
 
 pub trait VecExt {

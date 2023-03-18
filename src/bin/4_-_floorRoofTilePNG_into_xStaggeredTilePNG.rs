@@ -19,7 +19,7 @@ fn main() {
 		srcImage.height + FLOOR_ROOF_TILEHEIGHT / 2,
 	);
 	{
-		let srcPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(srcImage);
+		let srcPoints = &mut TilesIterator::new(TILEWIDTH, srcImage);
 		loop {
 			let srcPoint = srcPoints.next(FLOOR_ROOF_TILEHEIGHT);
 			if srcPoint[X] + TILEWIDTH > srcImage.width {
@@ -29,7 +29,11 @@ fn main() {
 				[
 					srcPoint[X] / 2,
 					srcPoint[Y]
-						+ if srcPoints.0.numOverflownColumns % 2 == 0 { 0 } else { FLOOR_ROOF_TILEHEIGHT / 2 },
+						+ if srcPoints.tileColumns.numOverflownColumns % 2 == 0 {
+							0
+						} else {
+							FLOOR_ROOF_TILEHEIGHT / 2
+						},
 				],
 				[TILEWIDTH, FLOOR_ROOF_TILEHEIGHT],
 				srcImage,

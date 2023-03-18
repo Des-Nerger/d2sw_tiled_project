@@ -19,8 +19,8 @@ fn main() {
 		srcImage.height /* + 1 */ / FLOOR_ROOF_TILEHEIGHT * (FLOOR_ROOF_TILEHEIGHT + 1),
 	);
 	{
-		let srcPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(srcImage);
-		let destPoints = &mut TilesIterator::<{ SQUARE_TILE_SIZE }>::new(destImage);
+		let srcPoints = &mut TilesIterator::new(TILEWIDTH, srcImage);
+		let destPoints = &mut TilesIterator::new(SQUARE_TILE_SIZE, destImage);
 		loop {
 			let srcPoint = srcPoints.next(FLOOR_ROOF_TILEHEIGHT);
 			if srcPoint[X] + TILEWIDTH > srcImage.width {

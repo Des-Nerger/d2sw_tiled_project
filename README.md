@@ -40,16 +40,16 @@ $ i=1; cargo build --release --offline --bin 1_-_ds1_into_ds1TOML \
            done
 
 $ p=(/tmp/d2_act1/CAVES/Cave.roguelikeTile.png); p=${p[@]%.roguelikeTile.png}; \
-    cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
-    <$p.roguelikeTile.png >$p.rhombPackedRoguelikeTile.png
+    cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_xStaggeredTilePNG \
+    <$p.roguelikeTile.png >$p.xStaggeredRoguelikeTile.png
 
 $ cargo run --release --offline --bin 4_-_floorRoofTilePNG_into_noisySquareTilePNG \
     <'/tmp/d2_act1/Crypt/Floor.tile.png' >'/tmp/d2_act1/Crypt/Floor.noisySquareTile.png'
 
-$ p=Floor.rhombPackedTile; cargo run --release --offline --bin dubcat <<< $p.waifu2x.png \
+$ p=Floor.xStaggeredTile; cargo run --release --offline --bin dubcat <<< ${p}_waifu2x_photo_scale.png \
     | cat - $p.png \
     | cargo run --release --offline --bin waifu2xPNG-originalIndexedPNG_into_fixedWaifu2xPNG \
-        >$p.fixedWaifu2x.png
+        >${p}_fixedWaifu2x_photo_scale.png
 
 $ p=(/tmp/d2_act1/?rypt/?loor.tile.png); p=${p[@]%.tile.png}; \
     cargo run --release --offline --bin dubcat <<< $p.dt1.toml \
@@ -82,7 +82,7 @@ $ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TO
 $ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TOML-blockPNG \
                                   --bin 3_-_dt1TOML-blockPNG_into_tilePNG \
                                   --bin dubcat --bin 4_-_dt1TOML-tilePNG_into_roguelikeTilePNG \
-                                  --bin 4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
+                                  --bin 4_-_floorRoofTilePNG_into_xStaggeredTilePNG \
     && find "$PATH_D2_EXTRACTED"/data/global/tiles/[Aa][Cc][Tt]${i} -iname "*.dt1" -print0 \
          | while read -d $'\0' f; do
              [[ $f =~ ([^/]+)/([^/]+)[.][A-Za-z0-9]+$ ]]
@@ -99,8 +99,8 @@ $ cargo build --release --offline --bin dubsplit --bin 2_-_pngPAL-dt1_into_dt1TO
                && printf "%*s" ${#p} "" 1>&2 \
 		           && target/release/dubcat <<< "$d/$b".dt1.toml | cat - /dev/shm/tile.png \
 		                | target/release/4_-_dt1TOML-tilePNG_into_roguelikeTilePNG \
-		                | target/release/4_-_floorRoofTilePNG_into_rhombPackedTilePNG \
-		                    >"$d/$b".rhombPackedRoguelikeTile.png
+		                | target/release/4_-_floorRoofTilePNG_into_xStaggeredTilePNG \
+		                    >"$d/$b".xStaggeredRoguelikeTile.png
            done; if [[ -f /dev/shm/tile.png ]]; then rm -v /dev/shm/tile.png; fi
 
 $ p=(/tmp/d2_act1/?rypt/?loor.tile.png); p=${p[@]%.tile.png}; \

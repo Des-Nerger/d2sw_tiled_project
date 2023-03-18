@@ -102,8 +102,8 @@ fn main() -> ExitCode {
 		Image::fromWidthHeight(width, height)
 	};
 	{
-		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImage);
-		let srcPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(srcImage);
+		let destPoints = &mut TilesIterator::new(TILEWIDTH, destImage);
+		let srcPoints = &mut TilesIterator::new(TILEWIDTH, srcImage);
 		for tile in &dt1Metadata.tiles {
 			let tileHeight = tile.height as usize;
 			let [destPoint, srcPoint] = [destPoints.next(FLOOR_ROOF_TILEHEIGHT), srcPoints.next(tileHeight)];
@@ -115,7 +115,7 @@ fn main() -> ExitCode {
 		}
 	}
 	{
-		let destPoints = &mut TilesIterator::<{ TILEWIDTH }>::new(destImage);
+		let destPoints = &mut TilesIterator::new(TILEWIDTH, destImage);
 		let hashSymbolImage = &Image::fromWidthData(
 			BLOCKWIDTH,
 			Vec::from_iter(HASH_SYMBOL.iter().map(|&byte| 0_u8.wrapping_sub(byte))),
