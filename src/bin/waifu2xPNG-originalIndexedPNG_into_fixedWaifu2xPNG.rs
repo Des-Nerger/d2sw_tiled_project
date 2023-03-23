@@ -4,7 +4,7 @@
 use {
 	array_macro::array,
 	core::str::{self, FromStr},
-	d2sw_tiled_project::{stdoutRaw, Image, VecExt, FULLY_TRANSPARENT},
+	d2sw_tiled_project::{stdoutRaw, DotExt, Image, VecExt, FULLY_TRANSPARENT, RGBA_SIZE, RGB_SIZE},
 	glam::{IVec2, IVec3, IVec4},
 	memchr::memchr,
 	png::ColorType,
@@ -32,8 +32,6 @@ fn main() {
 		([image.width as i32, image.height as _], image.data)
 	};
 	assert_eq!(origWidth * 2, width);
-	const RGB_SIZE: usize = 3;
-	const RGBA_SIZE: usize = RGB_SIZE + 1;
 	let (pngPAL, fixedWaifu2x) =
 		(png.info().palette.as_ref().unwrap().as_ref(), &mut Vec::withLen(waifu2x.len() / RGBA_SIZE));
 	{
@@ -59,7 +57,7 @@ fn main() {
 					}
 					.map(|colorComponent| colorComponent as _),
 				);
-				let (mut nearestSquaredDistance, mut nearestPALEntry) = (i32::MAX, {
+				let (mut nearestSquaredDist, mut nearestPALEntry) = (i32::MAX, {
 					const INVALID_PAL_ENTRY: usize = usize::MAX;
 					INVALID_PAL_ENTRY
 				});
@@ -68,7 +66,7 @@ fn main() {
 					((i * 4 - j * 2 + PIXELCENTER_MUL_2).lengthSquared() <= IVec2::new(3, 1).lengthSquared())
 						.then_some(neighbor)
 				}) {
-					let squaredDistance = (rgba
+					let squaredDist = (rgba
 						- IVec4::from((
 							IVec3::from_array(
 								unsafe {
@@ -79,8 +77,8 @@ fn main() {
 							(if neighbor == FULLY_TRANSPARENT as _ { u8::MIN } else { u8::MAX }) as _,
 						)))
 					.lengthSquared();
-					if squaredDistance < nearestSquaredDistance {
-						(nearestSquaredDistance, nearestPALEntry) = (squaredDistance, neighbor);
+					if squaredDist < nearestSquaredDist {
+						(nearestSquaredDist, nearestPALEntry) = (squaredDist, neighbor);
 					}
 				}
 				fixedWaifu2x[jIndex] = nearestPALEntry as _;
@@ -97,27 +95,6 @@ fn main() {
 			};
 			js = js.map(|j| j + Δj);
 		}
-		trait DotExt {
-			fn lengthSquared(self) -> i32;
-		}
-		macro_rules! impl_DotExt_for {
-			($ty: ty) => {
-				impl DotExt for $ty {
-					#[inline(always)]
-					fn lengthSquared(self) -> i32 {
-						self.dot(self)
-					}
-				}
-			};
-		}
-		macro_rules! applyMacro {
-			($ident: ident; $head: tt $(, $tail: tt )* $(,)?) => {
-				$ident! $head;
-				applyMacro!($ident; $( $tail ),*);
-			};
-			($ident: ident; ) => {};
-		}
-		applyMacro!(impl_DotExt_for; (IVec2), (IVec4));
 	}
 	let mut png = png::Encoder::new(BufWriter::new(stdoutRaw()), width as _, (origHeight * 2) as _);
 	png.set_color(ColorType::Indexed);

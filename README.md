@@ -137,4 +137,12 @@ $ i=1; cargo build --release --offline --bin 1_-_ds1_into_ds1TOML \
                | target/release/2_-_ds1TOML_into_ds1 >/dev/shm/tmp.ds1 \
                  && cmp "$f" /dev/shm/tmp.ds1 && echo OK 1>&2
            done; if [[ -f /dev/shm/tmp.ds1 ]]; then rm -v /dev/shm/tmp.ds1; fi
+
+$ cargo run --release --offline --bin 2_-_pngPAL_into_palInverse \
+    </dev/shm/act${i}_pngPAL.dat >/tmp/d2_act${i}/palInverse.dat
+
+$ p=(/tmp/d2_act1/?rypt/?loor.tile.rgba.png); p=${p[@]%.rgba.png}; \
+    cat /dev/shm/act${i}_pngPAL.dat /tmp/d2_act${i}/palInverse.dat $p.rgba.png \
+      | cargo run --release --offline --bin 3_-_pngPAL-palInverse-rgbaPNG_into_indexedPNG \
+          >$p.indexedColor.png
 ```

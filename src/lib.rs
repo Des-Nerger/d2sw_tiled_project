@@ -309,7 +309,10 @@ pub mod ds1 {
 	}
 }
 
-pub const PAL_LEN: usize = 256 * 3;
+pub const RGB_SIZE: usize = 3;
+pub const PAL_LEN: usize = 256 * RGB_SIZE;
+pub const RGBCUBE_VOLUME: usize = 2_usize.pow(RGB_SIZE as u32 * u8::BITS);
+pub const RGBA_SIZE: usize = RGB_SIZE + 1;
 
 pub mod dt1 {
 	use {
@@ -857,6 +860,7 @@ pub mod dt1 {
 
 use {
 	dt1::BLOCKWIDTH,
+	glam::{IVec2, IVec3, IVec4},
 	serde::ser,
 	std::{
 		fs::File,
@@ -1119,6 +1123,11 @@ macro_rules! unlet {
 	};
 }
 
+#[inline(always)]
+pub fn default<T: Default>() -> T {
+	Default::default()
+}
+
 pub trait VecExt {
 	fn withLen(len: usize) -> Self;
 	fn setLen(&mut self, newLen: usize);
@@ -1149,6 +1158,29 @@ impl<T: Copy> CopyExt for T {
 		self
 	}
 }
+
+pub trait DotExt {
+	fn lengthSquared(self) -> i32;
+}
+macro_rules! impl_DotExt_for {
+	($ty: ty) => {
+		impl DotExt for $ty {
+			#[inline(always)]
+			fn lengthSquared(self) -> i32 {
+				self.dot(self)
+			}
+		}
+	};
+}
+#[macro_export]
+macro_rules! applyMacro {
+	($ident: ident; $head: tt $(, $tail: tt )* $(,)?) => {
+		$ident! $head;
+		applyMacro!($ident; $( $tail ),*);
+	};
+	($ident: ident; ) => {};
+}
+applyMacro!(impl_DotExt_for; (IVec2), (IVec3), (IVec4));
 
 #[inline(always)]
 pub fn io_readToString(mut reader: impl Read) -> io::Result<String> {
