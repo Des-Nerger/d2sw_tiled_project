@@ -11,9 +11,8 @@ use {
 fn main() {
 	let stdin = &mut io::stdin().lock();
 	let boxedSlice = {
-		const N: usize = PAL_LEN + RGBCUBE_VOLUME;
-		let mut vec = Vec::<u8>::with_capacity(N);
-		stdin.take(N as _).read_to_end(&mut vec).unwrap();
+		let mut vec = Vec::<u8>::with_capacity(PAL_LEN + RGBCUBE_VOLUME);
+		stdin.take(vec.capacity() as _).read_to_end(&mut vec).unwrap();
 		vec.into_boxed_slice()
 	};
 	let pngPAL;
