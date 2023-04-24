@@ -738,6 +738,13 @@ pub mod dt1 {
 	pub const FLOOR_ORIENTATION: i32 = 0;
 	pub const ROOF_ORIENTATION: i32 = 15;
 
+	#[macro_export]
+	macro_rules! lowerWalls {
+		() => {
+			(ROOF_ORIENTATION + 1)..
+		};
+	}
+
 	impl super::Image {
 		pub fn fromDT1(tiles: &[Tile], dt1: &[u8]) -> Self {
 			let [mut minBlockHeight, mut maxBlockHeight] = [usize::MAX, 0];
@@ -1097,8 +1104,8 @@ impl UsizeExt for usize {
 	}
 	#[inline(always)]
 	fn mulSignumOf(self, rhs: Self) -> Self {
-		let signBits = (rhs as isize >> (usize::BITS - 1)) as usize;
-		(self ^ signBits) - signBits
+		let signBits = (rhs as isize >> (Self::BITS - 1)) as Self; // (
+		(self ^ signBits) - signBits // ) & ((-((rhs != 0) as isize)) as Self)
 	}
 }
 

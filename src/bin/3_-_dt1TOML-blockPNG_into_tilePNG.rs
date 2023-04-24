@@ -51,6 +51,7 @@ fn main() -> ExitCode {
 	let mut maxTileHeight = 0;
 	{
 		let srcPoints = &mut TilesIterator::new(BLOCKWIDTH, srcImage);
+		eprintln!();
 		dt1Metadata.tiles.retain_mut(|tile| {
 			if tile.blocks.len() == 0 {
 				return false;
@@ -68,6 +69,7 @@ fn main() -> ExitCode {
 				startY = min(startY, y + startΔy);
 				endY = max(endY, y + endΔy);
 			}
+			eprintln!("startY={startY}, endY={endY}");
 			tile.height = ((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT) as _;
 			for block in &mut tile.blocks {
 				block.y -= startY;

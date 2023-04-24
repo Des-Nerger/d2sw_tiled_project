@@ -1,6 +1,6 @@
 [package]
 name = "d2sw_tiled_project"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 
 [profile]
@@ -19,6 +19,7 @@ serde = { version = "1.0", features = ["derive"] }
 memchr = "2.5"
 clap = { version = "3.2", features = ["derive"] }
 rand = "0.8"
+# tiled-json-rs = "0.2"
 # tiled = { version = "0.10", default-features = false }
 # defer-lite = "1.0"
 # bitflags = "1.3"

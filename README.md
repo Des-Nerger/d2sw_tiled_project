@@ -145,4 +145,10 @@ $ p=(/tmp/d2_act1/?rypt/?loor.tile.rgba.png); p=${p[@]%.rgba.png}; \
     cat /dev/shm/act${i}_pngPAL.dat /tmp/d2_act${i}/palInverse.dat $p.rgba.png \
       | cargo run --release --offline --bin 3_-_pngPAL-palInverse-rgbaPNG_into_indexedPNG \
           >$p.indexedColor.png
+
+$ p=(/tmp/d2_act1/?rypt/?loor.tile.png); p=${p[@]%.tile.png}; \
+    cargo run --release --offline --bin dubcat <<< $p.dt1.toml \
+      | cat - $p.tile.png \
+      | cargo run --release --offline --bin 4_-_dt1TOML-tilePNG_into_tiledPNG \
+          >$p.tiled.png
 ```
