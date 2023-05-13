@@ -3,7 +3,9 @@
 
 use {
 	core::iter,
-	d2sw_tiled_project::{stdoutRaw, unlet, VecExt, PAL_LEN, RGBA_SIZE, RGBCUBE_VOLUME, RGB_SIZE},
+	d2sw_tiled_project::{
+		stdoutRaw, unlet, VecExt, BLACK, FULLY_TRANSPARENT, PAL_LEN, RGBA_SIZE, RGBCUBE_VOLUME,
+	},
 	png::ColorType,
 	std::io::{self, BufWriter, Read},
 };
@@ -31,14 +33,21 @@ fn main() {
 		(vec, width, height)
 	};
 	let mut indexedColor_data = Vec::withLen((width * height) as _);
-	for (indexedColor_pixel, [red, green, blue]) in iter::zip(
+	for (indexedColor_pixel, [red, green, blue, alpha]) in iter::zip(
 		indexedColor_data.iter_mut(),
 		rgbaData.as_slice().chunks(RGBA_SIZE).map(|slice| {
-			unsafe { <[u8; RGB_SIZE]>::try_from(slice.get_unchecked(..RGB_SIZE)).unwrap_unchecked() }
+			unsafe { <[u8; RGBA_SIZE]>::try_from(slice.get_unchecked(..RGBA_SIZE)).unwrap_unchecked() }
 				.map(|colorComponent| colorComponent as usize)
 		}),
 	) {
-		*indexedColor_pixel = palInverse[(red << (2 * u8::BITS)) | (green << u8::BITS) | blue];
+		*indexedColor_pixel = if alpha <= (u8::MAX / 16) as _ {
+			FULLY_TRANSPARENT
+		} else {
+			match palInverse[(red << (2 * u8::BITS)) | (green << u8::BITS) | blue] {
+				0 => BLACK,
+				nonZero => nonZero,
+			}
+		}
 	}
 	let mut png = png::Encoder::new(BufWriter::new(stdoutRaw()), width, height);
 	png.set_color(ColorType::Indexed);

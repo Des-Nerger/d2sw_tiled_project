@@ -2,14 +2,11 @@
 #![allow(non_snake_case, confusable_idents, mixed_script_confusables, uncommon_codepoints)]
 
 use {
-	core::{
-		cmp::{max, min},
-		str::{self, FromStr},
-	},
+	core::str::{self, FromStr},
 	d2sw_tiled_project::{
 		applyMacro,
 		dt1::{self, Block, TILEWIDTH},
-		io_readToString, stdoutRaw, unlet, Image, TilesIterator, X, Y,
+		io_readToString, stdoutRaw, unlet, Image, MinAssign_MaxAssign_Ext, TilesIterator, X, Y,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -42,16 +39,16 @@ fn main() -> ExitCode {
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let (srcImage, pngPAL) = (&Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
 	applyMacro!(unlet; (png), (stdin));
-	let (mut destTileHeight, srcTileHeights) = (0, &mut Vec::with_capacity(tiles.len()));
+	let (mut destTileHeight, srcTileHeights) = (0_usize, &mut Vec::with_capacity(tiles.len()));
 	for tile in tiles {
 		let [mut startY, mut endY, blockHeight] = [i16::MAX, i16::MIN, tile.blockHeight() as _];
 		for &Block { y, .. } in &tile.blocks {
-			startY = min(startY, y);
-			endY = max(endY, y + blockHeight);
+			startY.minAssign(y);
+			endY.maxAssign(y + blockHeight);
 		}
 		let srcTileHeight = (endY - startY) as usize;
 		srcTileHeights.push(srcTileHeight);
-		destTileHeight = max(destTileHeight, srcTileHeight);
+		destTileHeight.maxAssign(srcTileHeight);
 	}
 	{
 		let destColumnCount =

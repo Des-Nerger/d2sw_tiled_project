@@ -138,7 +138,7 @@ $ i=1; cargo build --release --offline --bin 1_-_ds1_into_ds1TOML \
                  && cmp "$f" /dev/shm/tmp.ds1 && echo OK 1>&2
            done; if [[ -f /dev/shm/tmp.ds1 ]]; then rm -v /dev/shm/tmp.ds1; fi
 
-$ mkdir -v /tmp/d2_act${i}/ && cargo run --release --offline --bin 2_-_pngPAL_into_palInverse \
+$ mkdir -pv /tmp/d2_act${i}/ && cargo run --release --offline --bin 2_-_pngPAL_into_palInverse \
     </dev/shm/act${i}_pngPAL.dat >/tmp/d2_act${i}/palInverse.dat
 
 $ p=(/tmp/d2_act1/?rypt/?loor.tile.rgba.png); p=${p[@]%.rgba.png}; \
@@ -151,4 +151,26 @@ $ p=(/tmp/d2_act1/?rypt/?loor.tile.png); p=${p[@]%.tile.png}; \
       | cat - $p.tile.png \
       | cargo run --release --offline --bin 4_-_dt1TOML-tilePNG_into_tiledPNG \
           >$p.tiled.png
+
+$ p=/tmp/d2_act1/Crypt; ls -r $p/*.tiled.png | cargo run --release --offline --bin dubcat \
+    | cargo run --release --offline --bin 5_-_tiledPNGs_into_flarsAtlasDefsTOML-atlasPNG -- \
+        --firstgid=16 160x80 160x224 ~/Downloads/flare/RectangleBinPack/bestEnclosingRect/rectpacker \
+    | cargo run --release --offline --bin dubsplit \
+        $p/tileset-d2sw-crypt.toml >$p/tileset-d2sw-crypt.png
+
+$ p=~/Sources/Des-Nerger/flars; b=dungeon; \
+  cargo run --release --offline --bin dubcat <<<$p/tiled/tiled-$b.png \
+    | cargo run --release --offline --bin 5_-_tiledPNGs_into_flarsAtlasDefsTOML-atlasPNG -- \
+        --firstgid=16 64x32 64x128 ~/Downloads/flare/RectangleBinPack/bestEnclosingRect/rectpacker \
+    | cargo run --release --offline --bin dubsplit \
+        >(sed "s|_|images/tileset-$b|" >$p/atlas-defs/tileset-$b.toml) \
+        >$p/images/tileset-$b.png
+
+$ p=~/Sources/Des-Nerger/flars; b=male-sprites; \
+  cargo run --release --offline --bin dubcat <<<$p/images/$b.png \
+    | cargo run --release --offline --bin 5_-_tiledPNGs_into_flarsAtlasDefsTOML-atlasPNG -- \
+        --firstgid=0 128x32 128x128 ~/Downloads/flare/RectangleBinPack/bestEnclosingRect/rectpacker \
+    | cargo run --release --offline --bin dubsplit \
+        >(sed "s|_|images/$b|" >$p/atlas-defs/$b.toml) \
+    | sponge $p/images/$b.png
 ```

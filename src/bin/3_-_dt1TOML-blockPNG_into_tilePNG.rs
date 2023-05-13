@@ -4,13 +4,14 @@
 use {
 	clap::Parser,
 	core::{
-		cmp::{max, min},
+		cmp::max,
 		mem,
 		str::{self, FromStr},
 	},
 	d2sw_tiled_project::{
 		dt1::{self, BLOCKWIDTH, FLOOR_ROOF_BLOCKHEIGHT, TILEWIDTH},
-		io_readToString, stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext,
+		io_readToString, stdoutRaw, Image, MinAssign_MaxAssign_Ext, TileColumns, TilesIterator, UsizeExt,
+		Vec2Ext, WIDTH,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -48,10 +49,10 @@ fn main() -> ExitCode {
 	};
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let (srcImage, pngPAL) = (&mut Image::fromPNG(png), png.info().palette.as_ref().unwrap().as_ref());
-	let mut maxTileHeight = 0;
+	let mut maxTileHeight = 0_usize;
 	{
 		let srcPoints = &mut TilesIterator::new(BLOCKWIDTH, srcImage);
-		eprintln!();
+		// eprintln!();
 		dt1Metadata.tiles.retain_mut(|tile| {
 			if tile.blocks.len() == 0 {
 				return false;
@@ -61,20 +62,20 @@ fn main() -> ExitCode {
 				let (y, [startΔy, endΔy]) = (
 					block.y,
 					if zealousVerticalPacking {
-						srcImage.ΔyBoundsᐸBLOCKWIDTHᐳ(srcPoints.next(blockHeight), blockHeight)
+						srcImage.boundingΔyRangeᐸBLOCKWIDTHᐳ(srcPoints.next(blockHeight), blockHeight)
 					} else {
 						[0, blockHeight as _]
 					},
 				);
-				startY = min(startY, y + startΔy);
-				endY = max(endY, y + endΔy);
+				startY.minAssign(y + startΔy);
+				endY.maxAssign(y + endΔy);
 			}
-			eprintln!("startY={startY}, endY={endY}");
+			// eprintln!("startY={startY}, endY={endY}");
 			tile.height = ((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT) as _;
 			for block in &mut tile.blocks {
 				block.y -= startY;
 			}
-			maxTileHeight = max(maxTileHeight, tile.height as usize);
+			maxTileHeight.maxAssign(tile.height as _);
 			true
 		});
 	}
@@ -111,7 +112,6 @@ fn main() -> ExitCode {
 					let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
 					const A: usize = 0;
 					const B: usize = 1;
-					const WIDTH: usize = 0;
 					pow2SquareSizes[A]
 						.cmp(&pow2SquareSizes[B])
 						.then_with(|| dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH]))

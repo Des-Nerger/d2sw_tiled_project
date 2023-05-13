@@ -3,7 +3,7 @@
 
 use {
 	core::{
-		cmp::{max, min},
+		cmp::max,
 		mem,
 		str::{self, FromStr},
 	},
@@ -12,7 +12,8 @@ use {
 			self, BLOCKWIDTH, FLOOR_ORIENTATION, FLOOR_ROOF_BLOCKHEIGHT, FLOOR_ROOF_TILEHEIGHT,
 			NUM_SUBTILES_PER_LINE, ROOF_ORIENTATION, TILEWIDTH,
 		},
-		io_readToString, stdoutRaw, Image, TileColumns, TilesIterator, UsizeExt, Vec2Ext,
+		io_readToString, stdoutRaw, Image, MinAssign_MaxAssign_Ext, TileColumns, TilesIterator, UsizeExt,
+		Vec2Ext, WIDTH,
 	},
 	memchr::memchr,
 	png::ColorType,
@@ -50,8 +51,8 @@ fn main() -> ExitCode {
 		let [mut startY, mut endY, blockHeight] = [i16::MAX, i16::MIN, tile.blockHeight() as _];
 		for block in &tile.blocks {
 			let y = block.y;
-			startY = min(startY, y);
-			endY = max(endY, y + blockHeight);
+			startY.minAssign(y);
+			endY.maxAssign(y + blockHeight);
 		}
 		tile.height = ((endY - startY) as usize).nextMultipleOf(FLOOR_ROOF_BLOCKHEIGHT) as _;
 		true
@@ -89,7 +90,6 @@ fn main() -> ExitCode {
 					let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
 					const A: usize = 0;
 					const B: usize = 1;
-					const WIDTH: usize = 0;
 					pow2SquareSizes[A]
 						.cmp(&pow2SquareSizes[B])
 						.then_with(|| dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH]))
@@ -118,7 +118,7 @@ fn main() -> ExitCode {
 		let destPoints = &mut TilesIterator::new(TILEWIDTH, destImage);
 		let hashSymbolImage = &Image::fromWidthData(
 			BLOCKWIDTH,
-			Vec::from_iter(HASH_SYMBOL.iter().map(|&byte| 0_u8.wrapping_sub(byte))),
+			Vec::from_iter(HASH_SYMBOL.iter().map(|&byte| 0_u8.wrapping_sub(byte))).into_boxed_slice(),
 		);
 		for tile in &dt1Metadata.tiles {
 			let (mut i, mut destPoint) = (

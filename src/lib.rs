@@ -26,7 +26,7 @@ pub mod ds1 {
 		pub unknown: Option<[u8; 2 * size_of::<i32>()]>,
 		pub numWallLayers: i32,
 		pub numFloors: i32,
-		pub layers: Vec<Vec<u32>>,
+		pub layers: Vec<Box<[u32]>>,
 
 		#[serde(rename = "object")]
 		pub objects: Option<Vec<Object>>,
@@ -138,12 +138,10 @@ pub mod ds1 {
 			}
 			for layer in layers {
 				if cfg!(target_endian = "little") {
-					to.write_all(unsafe {
-						slice::from_raw_parts(layer.as_ptr() as _, size_of_val(layer.as_slice()))
-					})
-					.unwrap();
+					to.write_all(unsafe { slice::from_raw_parts(layer.as_ptr() as _, size_of_val(layer as &[_])) })
+						.unwrap();
 				} else {
-					for &cell in layer {
+					for &cell in layer.iter() {
 						_ = to.write_u32::<LE>(cell);
 					}
 				}
@@ -218,7 +216,7 @@ pub mod ds1 {
 			let mut layers = Vec::new();
 			for _ in 0..numWallLayers * 2 + numFloors + ONE_SHADOW_LAYER as i32 + existsTagLayer(tagType) as i32
 			{
-				let mut layer = Vec::withLen(((xMax + 1) * (yMax + 1)) as _);
+				let mut layer = Vec::withLen(((xMax + 1) * (yMax + 1)) as _).into_boxed_slice();
 				cursor.read_u32_into::<LE>(&mut layer).unwrap();
 				layers.push(layer);
 			}
@@ -317,14 +315,11 @@ pub const RGBA_SIZE: usize = RGB_SIZE + 1;
 pub mod dt1 {
 	use {
 		super::{
-			CopyExt, Image, ReadExt, TileColumns, TilesIterator, UsizeExt, Vec2, Vec2Ext, WriteExt,
-			FULLY_TRANSPARENT, X, Y,
+			CopyExt, Image, MinAssign_MaxAssign_Ext, ReadExt, TileColumns, TilesIterator, UsizeExt, Vec2,
+			Vec2Ext, WriteExt, FULLY_TRANSPARENT, WIDTH, X, Y,
 		},
 		byteorder::{ReadBytesExt, WriteBytesExt, LE},
-		core::{
-			cmp::{max, min},
-			fmt, iter, mem, ops,
-		},
+		core::{cmp::max, fmt, iter, mem, ops},
 		serde::{Deserialize, Serialize},
 		std::{
 			fs::File,
@@ -529,8 +524,8 @@ pub mod dt1 {
 				let blocksDataLength = {
 					let [mut startY, mut endY, blockHeight] = [i16::MAX, i16::MIN, tile.blockHeight() as _];
 					for &Block { y, .. } in blocks {
-						startY = min(startY, y);
-						endY = max(endY, y + blockHeight);
+						startY.minAssign(y);
+						endY.maxAssign(y + blockHeight);
 					}
 					let (mut fileOffset, position, point) = (
 						blocks.len() as i32 * BLOCKHEADER_SIZE,
@@ -753,8 +748,8 @@ pub mod dt1 {
 				if blockHeight == 0 {
 					continue;
 				}
-				minBlockHeight = min(minBlockHeight, blockHeight);
-				maxBlockHeight = max(maxBlockHeight, blockHeight);
+				minBlockHeight.minAssign(blockHeight);
+				maxBlockHeight.maxAssign(blockHeight);
 			}
 			let (width, height);
 			{
@@ -791,7 +786,6 @@ pub mod dt1 {
 						let pow2SquareSizes = dimensions.map(|[width, height]| max(width, height).next_power_of_two());
 						const A: usize = 0;
 						const B: usize = 1;
-						const WIDTH: usize = 0;
 						pow2SquareSizes[A]
 							.cmp(&pow2SquareSizes[B])
 							.then_with(|| dimensions[B][WIDTH].cmp(&dimensions[A][WIDTH]))
@@ -866,6 +860,10 @@ pub mod dt1 {
 }
 
 use {
+	core::{
+		cmp::{max, min},
+		ops::{Div, Rem},
+	},
 	dt1::BLOCKWIDTH,
 	glam::{IVec2, IVec3, IVec4},
 	serde::ser,
@@ -879,11 +877,11 @@ use {
 pub struct Image {
 	pub width: usize,
 	pub height: usize,
-	pub data: Vec<u8>,
+	pub data: Box<[u8]>,
 }
 impl Image {
 	#[inline(always)]
-	pub fn fromWidthData(width: usize, data: Vec<u8>) -> Self {
+	pub fn fromWidthData(width: usize, data: Box<[u8]>) -> Self {
 		Self {
 			width,
 			height: {
@@ -896,20 +894,69 @@ impl Image {
 	}
 	#[inline(always)]
 	pub fn fromWidthHeight(width: usize, height: usize) -> Self {
-		Self { width, height, data: vec![FULLY_TRANSPARENT; width * height] }
+		Self { width, height, data: vec![FULLY_TRANSPARENT; width * height].into_boxed_slice() }
 	}
 	pub fn fromPNG(png: &mut png::Reader<impl Read>) -> Self {
 		let mut data = Vec::withLen(png.output_buffer_size());
 		let len = png.next_frame(&mut data).unwrap().buffer_size();
 		data.setLen(len);
-		Self::fromWidthData(png.info().width as _, data)
+		Self::fromWidthData(png.info().width as _, data.into_boxed_slice())
 	}
-	pub fn ΔyBoundsᐸBLOCKWIDTHᐳ(&mut self, [x0, y0]: Vec2, height: usize) -> [i16; 2] {
+	pub fn drawRectangle(&mut self, color: u8, [[x0, y0], [width, height]]: Rectangle) {
+		let [mut i, ΔiNextRow] = [x0 + self.width * y0, self.width - (width - 1)];
+		for Δy in 0..height {
+			if (0 == Δy) | (Δy == height - 1) {
+				(&mut self.data[i..][..width]).fill(color);
+				i += self.width;
+			} else {
+				{
+					let mut Δx = 0;
+					loop {
+						self.data[i] = color;
+						if Δx != 0 {
+							break;
+						}
+						Δx = width - 1;
+						i += Δx;
+					}
+				}
+				i += ΔiNextRow;
+			}
+		}
+	}
+	pub fn boundingRectangle(&self, [[x0, y0], [width, height]]: Rectangle) -> Option<Rectangle> {
+		const NONE: Rectangle = [[usize::MAX; 2], [usize::MIN; 2]];
+		let [mut topLeft, mut bottomRight] = NONE;
+		{
+			let [mut i, ΔiNextRow] = [x0 + self.width * y0, self.width - width];
+			for Δy in 0..height {
+				let mut isRowEmpty = true;
+				for Δx in 0..width {
+					if self.data[i] != FULLY_TRANSPARENT {
+						isRowEmpty = false;
+						topLeft[X].minAssign(Δx);
+						bottomRight[X].maxAssign(Δx);
+					}
+					i += 1;
+				}
+				if !isRowEmpty {
+					topLeft[Y].minAssign(Δy);
+					bottomRight[Y].maxAssign(Δy);
+				}
+				i += ΔiNextRow;
+			}
+		}
+		if [topLeft, bottomRight] == NONE {
+			return None;
+		}
+		Some([[x0, y0].add(topLeft), bottomRight.add([1; 2]).add(topLeft.neg())])
+	}
+	pub fn boundingΔyRangeᐸBLOCKWIDTHᐳ(&mut self, [x0, y0]: Vec2, height: usize) -> [i16; 2] {
 		let [mut startΔy, mut endΔy, width] = [0, height, self.width];
 		let mut i = x0 + y0 * width;
-		const FULLY_TRANSPARENT_LINE: &[u8; BLOCKWIDTH] = &[FULLY_TRANSPARENT; BLOCKWIDTH];
+		const FULLY_TRANSPARENT_ROW: &[u8; BLOCKWIDTH] = &[FULLY_TRANSPARENT; BLOCKWIDTH];
 		while startΔy < endΔy {
-			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_LINE {
+			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_ROW {
 				break;
 			}
 			startΔy += 1;
@@ -917,7 +964,7 @@ impl Image {
 		}
 		i = x0 + (y0 + height - 1) * width;
 		while startΔy < endΔy {
-			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_LINE {
+			if &self.data[i..][..BLOCKWIDTH] != FULLY_TRANSPARENT_ROW {
 				break;
 			}
 			endΔy -= 1;
@@ -932,12 +979,10 @@ impl Image {
 		srcImage: &Self,
 		srcPoint: Vec2,
 	) {
-		const WIDTH: usize = 0;
-		const HEIGHT: usize = 1;
 		let mut i = srcPoint[X] + srcPoint[Y] * srcImage.width;
-		let ΔiNextLine = srcImage.width - dimensions[WIDTH];
+		let ΔiNextRow = srcImage.width - dimensions[WIDTH];
 		let mut j = destPoint[X] + destPoint[Y] * self.width;
-		let ΔjNextLine = self.width - dimensions[WIDTH];
+		let ΔjNextRow = self.width - dimensions[WIDTH];
 		let mut Δy = 0;
 		while Δy < dimensions[HEIGHT] {
 			let mut Δx = 0;
@@ -954,19 +999,38 @@ impl Image {
 				j += 1;
 			}
 			Δy += 1;
-			i += ΔiNextLine;
-			j += ΔjNextLine;
+			i += ΔiNextRow;
+			j += ΔjNextRow;
 		}
 	}
 }
+#[allow(non_camel_case_types)]
+pub trait LenConst_Ext {
+	const LEN: usize;
+}
+impl<T, const N: usize> LenConst_Ext for [T; N] {
+	const LEN: usize = N;
+}
+pub type Rectangle = [Vec2; 2];
+pub const POINT: usize = 0;
+pub const DIMENSIONS: usize = 1;
 pub type Vec2 = [usize; 2];
 pub const X: usize = 0;
 pub const Y: usize = 1;
+pub const WIDTH: usize = 0;
+pub const HEIGHT: usize = 1;
 pub trait Vec2Ext {
+	fn neg(self) -> Self;
 	fn add(self, rhs: Self) -> Self;
 	fn addAssign(&mut self, rhs: Self);
+	fn div(self, rhs: usize) -> Self;
 }
 impl Vec2Ext for Vec2 {
+	#[inline(always)]
+	fn neg(self) -> Self {
+		[0_usize.wrapping_sub(self[0]), 0_usize.wrapping_sub(self[1])]
+	}
+
 	#[inline(always)]
 	fn add(self, rhs: Self) -> Self {
 		[self[0].wrapping_add(rhs[0]), self[1].wrapping_add(rhs[1])]
@@ -976,8 +1040,15 @@ impl Vec2Ext for Vec2 {
 	fn addAssign(&mut self, rhs: Self) {
 		*self = self.add(rhs);
 	}
+
+	#[inline(always)]
+	fn div(self, rhs: usize) -> Self {
+		[self[0] / rhs, self[1] / rhs]
+	}
 }
 pub const FULLY_TRANSPARENT: u8 = 0;
+pub const RED: u8 = 98;
+pub const BLACK: u8 = 172;
 impl dt1::DrawDestination for Image {
 	#[inline(always)]
 	fn width(&self) -> usize {
@@ -1109,6 +1180,27 @@ impl UsizeExt for usize {
 	}
 }
 
+#[allow(non_camel_case_types)]
+pub trait MinAssign_MaxAssign_Ext {
+	fn minAssign(&mut self, rhs: Self);
+	fn maxAssign(&mut self, rhs: Self);
+}
+macro_rules! impl_minAssign_maxAssign_for {
+	($ty: ty) => {
+		impl MinAssign_MaxAssign_Ext for $ty {
+			#[inline(always)]
+			fn minAssign(&mut self, rhs: Self) {
+				*self = min(*self, rhs);
+			}
+			#[inline(always)]
+			fn maxAssign(&mut self, rhs: Self) {
+				*self = max(*self, rhs);
+			}
+		}
+	};
+}
+applyMacro!(impl_minAssign_maxAssign_for; (i16), (i32), (usize));
+
 #[inline(always)]
 pub const fn log2(of: usize) -> usize {
 	(usize::BITS - 1 - of.leading_zeros()) as _
@@ -1188,6 +1280,18 @@ macro_rules! applyMacro {
 	($ident: ident; ) => {};
 }
 applyMacro!(impl_DotExt_for; (IVec2), (IVec3), (IVec4));
+
+pub trait DivRemExt {
+	fn div_rem(self, rhs: Self) -> [Self; 2]
+	where
+		Self: Sized;
+}
+impl<T: Copy + Div<Output = T> + Rem<Output = T>> DivRemExt for T {
+	#[inline(always)]
+	fn div_rem(self, rhs: Self) -> [Self; 2] {
+		[self / rhs, self % rhs]
+	}
+}
 
 #[inline(always)]
 pub fn io_readToString(mut reader: impl Read) -> io::Result<String> {

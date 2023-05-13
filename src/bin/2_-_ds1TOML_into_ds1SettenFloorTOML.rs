@@ -34,7 +34,7 @@ fn main() {
 		let len = layers.len();
 		&mut layers[((numWallLayers * 2) as _)..(len - ONE_SHADOW_LAYER - existsTagLayer(tagType) as usize)]
 	} {
-		for cell in floorLayer {
+		for cell in floorLayer.iter_mut() {
 			*cell = {
 				let &mut cell = cell;
 				if cell & LAYER_DRAWING_PRIORITY_MASK == 0 {

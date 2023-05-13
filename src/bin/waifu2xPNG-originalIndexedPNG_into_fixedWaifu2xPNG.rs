@@ -24,7 +24,7 @@ fn main() {
 		let mut vec = Vec::withLen(png.output_buffer_size());
 		let len = png.next_frame(&mut vec).unwrap().buffer_size();
 		vec.setLen(len);
-		(vec, png.info().width as i32)
+		(vec.into_boxed_slice(), png.info().width as i32)
 	};
 	let png = &mut png::Decoder::new(stdin).read_info().unwrap();
 	let ([origWidth, origHeight], ref mut orig) = {
@@ -32,8 +32,10 @@ fn main() {
 		([image.width as i32, image.height as _], image.data)
 	};
 	assert_eq!(origWidth * 2, width);
-	let (pngPAL, fixedWaifu2x) =
-		(png.info().palette.as_ref().unwrap().as_ref(), &mut Vec::withLen(waifu2x.len() / RGBA_SIZE));
+	let (pngPAL, fixedWaifu2x) = (
+		png.info().palette.as_ref().unwrap().as_ref(),
+		&mut Vec::withLen(waifu2x.len() / RGBA_SIZE).into_boxed_slice(),
+	);
 	{
 		let (mut i, neighborhood, mut js) = (
 			IVec2::ZERO,

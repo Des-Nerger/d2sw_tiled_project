@@ -3,16 +3,13 @@
 
 use {
 	clap::{value_parser, Parser},
-	core::{
-		array,
-		cmp::{max, min},
-	},
+	core::array,
 	d2sw_tiled_project::{
 		ds1::{
 			self, LAYER_DRAWING_PRIORITY_MASK, MAIN_INDEX_MASK, MAIN_INDEX_MAX, MAIN_INDEX_OFFSET,
 			SUB_INDEX_MASK, SUB_INDEX_OFFSET,
 		},
-		io_readToString, stdoutRaw, toml_toStringPretty,
+		io_readToString, stdoutRaw, toml_toStringPretty, MinAssign_MaxAssign_Ext,
 	},
 	std::io::{self, Write},
 };
@@ -35,7 +32,7 @@ fn main() {
 		let (mut i, floorLayer, [columns, rows]) = (
 			0,
 			&mut layers[(numWallLayers * 2) as usize],
-			&mut array::from_fn(|i| vec![[i32::MAX, i32::MIN]; ([xMax, yMax][i] + 1) as _]),
+			&mut array::from_fn(|i| vec![[i32::MAX, i32::MIN]; ([xMax, yMax][i] + 1) as _].into_boxed_slice()),
 		);
 		for y in 0..=yMax {
 			for x in 0..=xMax {
@@ -44,17 +41,13 @@ fn main() {
 					const FLOOR_END: usize = 1;
 					{
 						let column = &mut columns[x as usize];
-						*column = {
-							let &mut column = column;
-							[min(column[FLOOR_START], y), max(column[FLOOR_END], y)]
-						};
+						column[FLOOR_START].minAssign(y);
+						column[FLOOR_END].maxAssign(y);
 					}
 					{
 						let row = &mut rows[y as usize];
-						*row = {
-							let &mut row = row;
-							[min(row[FLOOR_START], x), max(row[FLOOR_END], x)]
-						};
+						row[FLOOR_START].minAssign(x);
+						row[FLOOR_END].maxAssign(x);
 					}
 				}
 				i += 1;

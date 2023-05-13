@@ -72,9 +72,9 @@ fn main() {
 		}
 	}
 	assert_eq!(filesizeLine.capacity(), FILESIZE_LINE.len());
-	let mut keys = Vec::from_iter(hashMap.keys());
+	let mut keys = Vec::from_iter(hashMap.keys()).into_boxed_slice();
 	keys.sort_by_key(|&key| hashMap[key]); // not sure if sort_by_cached_key is worth it here
-	for key in keys {
+	for &key in keys.into_iter() {
 		writeln!(stdout, "{key:?}\t{}", hashMap[key]).unwrap();
 	}
 }

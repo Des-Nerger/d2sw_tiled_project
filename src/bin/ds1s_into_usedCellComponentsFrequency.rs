@@ -49,7 +49,7 @@ fn main() {
 				MainIndex => ds1::MAIN_INDEX_MAX,
 				SubIndex => ds1::SUB_INDEX_MAX,
 			};
-			vec![0; (1 + componentMaxValue) as _]
+			vec![0; (1 + componentMaxValue) as _].into_boxed_slice()
 		},
 		String::with_capacity(FILESIZE_LINE.len()),
 		Vec::new(),
@@ -92,9 +92,9 @@ fn main() {
 		}
 	}
 	assert_eq!(filesizeLine.capacity(), FILESIZE_LINE.len());
-	let mut indices = Vec::from_iter(0..=componentMaxValue as u8);
+	let mut indices = Vec::from_iter(0..=componentMaxValue as u8).into_boxed_slice();
 	indices.sort_by_key(|&i| counts[i as usize]);
-	for &i in &indices {
+	for &i in indices.into_iter() {
 		writeln!(stdout, "{i}\t{}", counts[i as usize]).unwrap();
 	}
 }
